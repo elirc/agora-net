@@ -25,6 +25,8 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
     public DbSet<ReviewVote> ReviewVotes => Set<ReviewVote>();
     public DbSet<Wishlist> Wishlists => Set<Wishlist>();
     public DbSet<WishlistItem> WishlistItems => Set<WishlistItem>();
+    public DbSet<ReturnRequest> ReturnRequests => Set<ReturnRequest>();
+    public DbSet<ReturnRequestItem> ReturnRequestItems => Set<ReturnRequestItem>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -176,6 +178,34 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
             method.Property(m => m.Code).HasMaxLength(64).IsRequired();
             method.HasIndex(m => m.Code).IsUnique();
             method.Property(m => m.Name).HasMaxLength(200).IsRequired();
+        });
+
+        modelBuilder.Entity<ReturnRequest>(request =>
+        {
+            request.Property(r => r.Number).HasMaxLength(32).IsRequired();
+            request.HasIndex(r => r.Number).IsUnique();
+            request.Property(r => r.Comment).HasMaxLength(500);
+            request.Property(r => r.RejectionNote).HasMaxLength(500);
+            request.Property(r => r.Currency).HasMaxLength(3);
+            request.HasIndex(r => r.Status);
+            request.HasOne(r => r.Order)
+                .WithMany()
+                .HasForeignKey(r => r.OrderId)
+                .OnDelete(DeleteBehavior.Cascade);
+            request.HasOne<Customer>()
+                .WithMany()
+                .HasForeignKey(r => r.CustomerId)
+                .OnDelete(DeleteBehavior.SetNull);
+            request.HasMany(r => r.Items)
+                .WithOne(i => i.ReturnRequest)
+                .HasForeignKey(i => i.ReturnRequestId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ReturnRequestItem>(item =>
+        {
+            item.Property(i => i.Sku).HasMaxLength(64).IsRequired();
+            item.HasIndex(i => i.OrderItemId);
         });
 
         modelBuilder.Entity<Wishlist>(wishlist =>
