@@ -30,7 +30,8 @@ public sealed record CreateDiscountRequest(
     [Required, MaxLength(64)] string Code,
     [Required] string Type, // "Percentage" | "FixedAmount"
     [Range(0.01, 1_000_000)] decimal Value,
-    [MaxLength(3)] string? Currency,
+    [RegularExpression("^[A-Za-z]{3}$", ErrorMessage = "Currency must be a 3-letter ISO code.")]
+    string? Currency,
     DateTimeOffset? ExpiresAt,
     [Range(1, int.MaxValue)] int? UsageLimit,
     bool? IsActive);

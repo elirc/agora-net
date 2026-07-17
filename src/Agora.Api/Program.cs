@@ -8,6 +8,9 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers(options =>
     options.Filters.Add<Agora.Api.Filters.DomainExceptionFilter>());
 
+// RFC 7807 responses for unhandled exceptions and bare status codes.
+builder.Services.AddProblemDetails();
+
 builder.Services.AddDbContext<AgoraDbContext>(options =>
     options.UseSqlite(
         builder.Configuration.GetConnectionString("Default") ?? "Data Source=agora.db"));
@@ -21,6 +24,9 @@ builder.Services.AddScoped<CheckoutService>();
 builder.Services.AddScoped<OrderService>();
 
 var app = builder.Build();
+
+app.UseExceptionHandler();
+app.UseStatusCodePages();
 
 // Integration tests provide their own (in-memory) database.
 if (!app.Environment.IsEnvironment("Testing"))
