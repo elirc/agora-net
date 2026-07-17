@@ -1,4 +1,6 @@
+using Agora.Domain.Services;
 using Agora.Infrastructure.Persistence;
+using Agora.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -9,6 +11,14 @@ builder.Services.AddControllers(options =>
 builder.Services.AddDbContext<AgoraDbContext>(options =>
     options.UseSqlite(
         builder.Configuration.GetConnectionString("Default") ?? "Data Source=agora.db"));
+
+builder.Services.Configure<CheckoutOptions>(
+    builder.Configuration.GetSection(CheckoutOptions.SectionName));
+builder.Services.AddSingleton<ITaxCalculator, FlatRateTaxCalculator>();
+builder.Services.AddSingleton<IShippingCalculator, FlatRateShippingCalculator>();
+builder.Services.AddSingleton<IPaymentGateway, FakePaymentGateway>();
+builder.Services.AddScoped<CheckoutService>();
+builder.Services.AddScoped<OrderService>();
 
 var app = builder.Build();
 
