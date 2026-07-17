@@ -7,7 +7,10 @@ using Microsoft.EntityFrameworkCore;
 namespace Agora.Infrastructure.Services;
 
 /// <summary>Order lifecycle operations beyond checkout.</summary>
-public class OrderService(AgoraDbContext db, IPaymentGateway paymentGateway)
+public class OrderService(
+    AgoraDbContext db,
+    IPaymentGateway paymentGateway,
+    WebhookService webhookService)
 {
     /// <summary>Cancels a pending or paid order; paid orders are refunded and restocked.</summary>
     public async Task<Order> CancelAsync(string number, CancellationToken ct = default)
@@ -47,6 +50,10 @@ public class OrderService(AgoraDbContext db, IPaymentGateway paymentGateway)
         await RestockAsync(order, ct);
 
         await db.SaveChangesAsync(ct);
+
+        await webhookService.DispatchAsync(
+            WebhookEvents.OrderRefunded, WebhookService.OrderPayload(order), ct);
+
         return order;
     }
 

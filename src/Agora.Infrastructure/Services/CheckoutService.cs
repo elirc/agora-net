@@ -28,7 +28,8 @@ public sealed record CheckoutInput(
 public class CheckoutService(
     AgoraDbContext db,
     TaxService taxService,
-    IPaymentGateway paymentGateway)
+    IPaymentGateway paymentGateway,
+    WebhookService webhookService)
 {
     public async Task<Order> CheckoutAsync(CheckoutInput input, CancellationToken ct = default)
     {
@@ -210,6 +211,11 @@ public class CheckoutService(
         discount?.RegisterUse(now);
         cart.RemoveActiveItems();
         await db.SaveChangesAsync(ct);
+
+        await webhookService.DispatchAsync(
+            WebhookEvents.OrderCreated, WebhookService.OrderPayload(order), ct);
+        await webhookService.DispatchAsync(
+            WebhookEvents.OrderPaid, WebhookService.OrderPayload(order), ct);
 
         return order;
     }

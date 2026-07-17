@@ -45,6 +45,8 @@ builder.Services
 builder.Services.AddAuthorization();
 
 builder.Services.AddSingleton<IPaymentGateway, FakePaymentGateway>();
+builder.Services.AddSingleton<IWebhookSender, FakeWebhookSender>();
+builder.Services.AddScoped<WebhookService>();
 builder.Services.AddScoped<TaxService>();
 builder.Services.AddScoped<CheckoutService>();
 builder.Services.AddScoped<OrderService>();

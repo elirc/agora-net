@@ -33,6 +33,8 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
     public DbSet<TaxZone> TaxZones => Set<TaxZone>();
     public DbSet<TaxZoneRate> TaxZoneRates => Set<TaxZoneRate>();
     public DbSet<GiftCard> GiftCards => Set<GiftCard>();
+    public DbSet<WebhookSubscription> WebhookSubscriptions => Set<WebhookSubscription>();
+    public DbSet<WebhookDelivery> WebhookDeliveries => Set<WebhookDelivery>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -190,6 +192,27 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
             method.Property(m => m.Name).HasMaxLength(200).IsRequired();
         });
 
+        modelBuilder.Entity<WebhookSubscription>(subscription =>
+        {
+            subscription.Property(s => s.Url).HasMaxLength(2000).IsRequired();
+            subscription.Property(s => s.Secret).HasMaxLength(200).IsRequired();
+            subscription.Property(s => s.Events)
+                .HasConversion(EventsConverter, EventsComparer)
+                .HasMaxLength(1000);
+        });
+
+        modelBuilder.Entity<WebhookDelivery>(delivery =>
+        {
+            delivery.Property(d => d.EventType).HasMaxLength(64).IsRequired();
+            delivery.Property(d => d.Signature).HasMaxLength(128);
+            delivery.HasIndex(d => d.SubscriptionId);
+            delivery.HasIndex(d => d.Status);
+            delivery.HasOne(d => d.Subscription)
+                .WithMany()
+                .HasForeignKey(d => d.SubscriptionId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
         modelBuilder.Entity<Fulfillment>(fulfillment =>
         {
             fulfillment.Property(f => f.Number).HasMaxLength(32).IsRequired();
@@ -343,6 +366,18 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
             item.Property(i => i.VariantName).HasMaxLength(200);
         });
     }
+
+    private static readonly ValueConverter<List<string>, string> EventsConverter =
+        new(
+            v => string.Join(',', v),
+            v => v.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToList());
+
+    private static readonly ValueComparer<List<string>> EventsComparer =
+        new(
+            (a, b) => (a ?? new List<string>()).SequenceEqual(b ?? new List<string>()),
+            v => string.Join(',', v).GetHashCode(),
+            v => v.ToList());
 
     private static readonly ValueConverter<Dictionary<string, string>, string> OptionsConverter =
         new(
