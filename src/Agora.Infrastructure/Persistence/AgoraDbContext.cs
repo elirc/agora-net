@@ -21,6 +21,8 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
     public DbSet<CustomerAddress> CustomerAddresses => Set<CustomerAddress>();
     public DbSet<ShippingMethod> ShippingMethods => Set<ShippingMethod>();
+    public DbSet<Review> Reviews => Set<Review>();
+    public DbSet<ReviewVote> ReviewVotes => Set<ReviewVote>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -170,6 +172,36 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
             method.Property(m => m.Code).HasMaxLength(64).IsRequired();
             method.HasIndex(m => m.Code).IsUnique();
             method.Property(m => m.Name).HasMaxLength(200).IsRequired();
+        });
+
+        modelBuilder.Entity<Review>(review =>
+        {
+            review.Property(r => r.Title).HasMaxLength(200);
+            review.Property(r => r.Body).HasMaxLength(4000).IsRequired();
+            review.Property(r => r.ModerationNote).HasMaxLength(500);
+            review.HasIndex(r => new { r.ProductId, r.CustomerId }).IsUnique();
+            review.HasIndex(r => r.Status);
+            review.HasOne(r => r.Product)
+                .WithMany()
+                .HasForeignKey(r => r.ProductId)
+                .OnDelete(DeleteBehavior.Cascade);
+            review.HasOne<Customer>()
+                .WithMany()
+                .HasForeignKey(r => r.CustomerId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ReviewVote>(vote =>
+        {
+            vote.HasIndex(v => new { v.ReviewId, v.CustomerId }).IsUnique();
+            vote.HasOne(v => v.Review)
+                .WithMany()
+                .HasForeignKey(v => v.ReviewId)
+                .OnDelete(DeleteBehavior.Cascade);
+            vote.HasOne<Customer>()
+                .WithMany()
+                .HasForeignKey(v => v.CustomerId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<OrderItem>(item =>
