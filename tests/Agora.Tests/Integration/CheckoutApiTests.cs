@@ -153,7 +153,9 @@ public class CheckoutApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiF
     [Fact]
     public async Task Checkout_UsageLimitedDiscount_SecondUseRejected()
     {
-        var create = await _client.PostAsJsonAsync("/api/discounts",
+        var admin = factory.CreateClient();
+        await admin.AuthenticateAsAdminAsync();
+        var create = await admin.PostAsJsonAsync("/api/discounts",
             new CreateDiscountRequest("ONCE5", "FixedAmount", 5m, null, null, 1, null));
         Assert.Equal(HttpStatusCode.Created, create.StatusCode);
 

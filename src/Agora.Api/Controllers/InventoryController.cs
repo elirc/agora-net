@@ -1,5 +1,6 @@
 using Agora.Api.Contracts;
 using Agora.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -23,6 +24,7 @@ public class InventoryController(AgoraDbContext db) : ControllerBase
     }
 
     /// <summary>Sets the absolute on-hand stock level for a SKU.</summary>
+    [Authorize(Roles = "Admin")]
     [HttpPut("{sku}")]
     public async Task<ActionResult<InventoryResponse>> SetStock(
         string sku, SetStockRequest request, CancellationToken ct)

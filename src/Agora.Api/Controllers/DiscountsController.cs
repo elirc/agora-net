@@ -2,6 +2,7 @@ using Agora.Api.Contracts;
 using Agora.Domain.Common;
 using Agora.Domain.Entities;
 using Agora.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -26,6 +27,7 @@ public class DiscountsController(AgoraDbContext db) : ControllerBase
         return discount is null ? NotFound() : Ok(DiscountResponse.From(discount));
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpPost]
     public async Task<ActionResult<DiscountResponse>> Create(CreateDiscountRequest request, CancellationToken ct)
     {
@@ -67,6 +69,7 @@ public class DiscountsController(AgoraDbContext db) : ControllerBase
         return CreatedAtAction(nameof(GetByCode), new { code = discount.Code }, DiscountResponse.From(discount));
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpPut("{code}")]
     public async Task<ActionResult<DiscountResponse>> Update(
         string code, UpdateDiscountRequest request, CancellationToken ct)
@@ -85,6 +88,7 @@ public class DiscountsController(AgoraDbContext db) : ControllerBase
         return Ok(DiscountResponse.From(discount));
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpDelete("{code}")]
     public async Task<IActionResult> Delete(string code, CancellationToken ct)
     {

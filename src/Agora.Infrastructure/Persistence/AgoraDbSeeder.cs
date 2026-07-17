@@ -1,5 +1,6 @@
 using Agora.Domain.Common;
 using Agora.Domain.Entities;
+using Agora.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Agora.Infrastructure.Persistence;
@@ -7,8 +8,23 @@ namespace Agora.Infrastructure.Persistence;
 /// <summary>Seeds a small catalog for local development. Idempotent: skips when data exists.</summary>
 public static class AgoraDbSeeder
 {
+    public const string AdminEmail = "admin@agora.dev";
+    public const string AdminPassword = "AdminPass123!";
+
     public static async Task SeedAsync(AgoraDbContext db, CancellationToken ct = default)
     {
+        if (!await db.Customers.AnyAsync(ct))
+        {
+            db.Customers.Add(new Customer
+            {
+                Email = AdminEmail,
+                PasswordHash = new Pbkdf2PasswordHasher().Hash(AdminPassword),
+                FullName = "Agora Admin",
+                Role = CustomerRole.Admin,
+            });
+            await db.SaveChangesAsync(ct);
+        }
+
         if (await db.Categories.AnyAsync(ct))
         {
             return;

@@ -5,9 +5,14 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Agora.Tests.Integration;
 
-public class InventoryApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiFactory>
+public class InventoryApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiFactory>, IAsyncLifetime
 {
     private readonly HttpClient _client = factory.CreateClient();
+
+    // Admin-only mutations are exercised throughout; authenticate up front.
+    public Task InitializeAsync() => _client.AuthenticateAsAdminAsync();
+
+    public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
     public async Task GetBySku_ReturnsSeededStock()

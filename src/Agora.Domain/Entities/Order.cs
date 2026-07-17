@@ -20,6 +20,9 @@ public class Order
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Number { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
+
+    /// <summary>Owning account for signed-in checkouts; null for guest orders.</summary>
+    public Guid? CustomerId { get; set; }
     public OrderStatus Status { get; private set; } = OrderStatus.Pending;
     public Address ShippingAddress { get; set; } = new();
 

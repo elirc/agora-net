@@ -8,6 +8,7 @@ namespace Agora.Infrastructure.Persistence;
 
 public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContext(options)
 {
+    public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
@@ -31,6 +32,14 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<Customer>(customer =>
+        {
+            customer.Property(c => c.Email).HasMaxLength(320).IsRequired();
+            customer.HasIndex(c => c.Email).IsUnique();
+            customer.Property(c => c.PasswordHash).HasMaxLength(500).IsRequired();
+            customer.Property(c => c.FullName).HasMaxLength(200);
+        });
+
         modelBuilder.Entity<Category>(category =>
         {
             category.Property(c => c.Name).HasMaxLength(200).IsRequired();
@@ -95,6 +104,11 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
         {
             cart.Property(c => c.Token).HasMaxLength(64).IsRequired();
             cart.HasIndex(c => c.Token).IsUnique();
+            cart.HasIndex(c => c.CustomerId);
+            cart.HasOne<Customer>()
+                .WithMany()
+                .HasForeignKey(c => c.CustomerId)
+                .OnDelete(DeleteBehavior.SetNull);
             cart.HasMany(c => c.Items)
                 .WithOne(i => i.Cart)
                 .HasForeignKey(i => i.CartId)
@@ -124,6 +138,11 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
             order.Property(o => o.Currency).HasMaxLength(3);
             order.Property(o => o.DiscountCode).HasMaxLength(64);
             order.HasIndex(o => o.Number).IsUnique();
+            order.HasIndex(o => o.CustomerId);
+            order.HasOne<Customer>()
+                .WithMany()
+                .HasForeignKey(o => o.CustomerId)
+                .OnDelete(DeleteBehavior.SetNull);
             order.OwnsOne(o => o.ShippingAddress);
             order.HasMany(o => o.Items)
                 .WithOne(i => i.Order)
