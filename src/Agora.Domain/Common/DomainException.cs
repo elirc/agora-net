@@ -15,6 +15,9 @@ public sealed class InvalidOrderStateException(string message) : DomainException
 /// <summary>Thrown when a discount code cannot be applied.</summary>
 public sealed class InvalidDiscountException(string message) : DomainException(message);
 
+/// <summary>Thrown when a fulfillment cannot be created as specified.</summary>
+public sealed class InvalidFulfillmentException(string message) : DomainException(message);
+
 /// <summary>Thrown on an illegal return (RMA) lifecycle transition.</summary>
 public sealed class InvalidReturnStateException(string message) : DomainException(message);
 

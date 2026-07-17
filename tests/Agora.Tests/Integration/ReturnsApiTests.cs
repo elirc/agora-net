@@ -285,7 +285,8 @@ public class ReturnsApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiFa
         string? discount = null)
     {
         var order = await PlaceOrder(sku, quantity, client, email, discount);
-        var fulfill = await _client.PostAsync($"/api/orders/{order.Number}/fulfill", null);
+        var admin = await AdminClient();
+        var fulfill = await admin.PostAsync($"/api/orders/{order.Number}/fulfill", null);
         fulfill.EnsureSuccessStatusCode();
         return (await fulfill.Content.ReadFromJsonAsync<OrderResponse>())!;
     }

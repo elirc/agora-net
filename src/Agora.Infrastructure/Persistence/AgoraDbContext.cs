@@ -27,6 +27,8 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
     public DbSet<WishlistItem> WishlistItems => Set<WishlistItem>();
     public DbSet<ReturnRequest> ReturnRequests => Set<ReturnRequest>();
     public DbSet<ReturnRequestItem> ReturnRequestItems => Set<ReturnRequestItem>();
+    public DbSet<Fulfillment> Fulfillments => Set<Fulfillment>();
+    public DbSet<FulfillmentItem> FulfillmentItems => Set<FulfillmentItem>();
     public DbSet<TaxCategory> TaxCategories => Set<TaxCategory>();
     public DbSet<TaxZone> TaxZones => Set<TaxZone>();
     public DbSet<TaxZoneRate> TaxZoneRates => Set<TaxZoneRate>();
@@ -186,6 +188,28 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
             method.Property(m => m.Code).HasMaxLength(64).IsRequired();
             method.HasIndex(m => m.Code).IsUnique();
             method.Property(m => m.Name).HasMaxLength(200).IsRequired();
+        });
+
+        modelBuilder.Entity<Fulfillment>(fulfillment =>
+        {
+            fulfillment.Property(f => f.Number).HasMaxLength(32).IsRequired();
+            fulfillment.HasIndex(f => f.Number).IsUnique();
+            fulfillment.Property(f => f.Carrier).HasMaxLength(100);
+            fulfillment.Property(f => f.TrackingNumber).HasMaxLength(100);
+            fulfillment.HasOne(f => f.Order)
+                .WithMany()
+                .HasForeignKey(f => f.OrderId)
+                .OnDelete(DeleteBehavior.Cascade);
+            fulfillment.HasMany(f => f.Items)
+                .WithOne(i => i.Fulfillment)
+                .HasForeignKey(i => i.FulfillmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<FulfillmentItem>(item =>
+        {
+            item.Property(i => i.Sku).HasMaxLength(64).IsRequired();
+            item.HasIndex(i => i.OrderItemId);
         });
 
         modelBuilder.Entity<TaxCategory>(category =>

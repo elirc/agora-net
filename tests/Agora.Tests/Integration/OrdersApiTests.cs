@@ -4,9 +4,14 @@ using Agora.Api.Contracts;
 
 namespace Agora.Tests.Integration;
 
-public class OrdersApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiFactory>
+public class OrdersApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiFactory>, IAsyncLifetime
 {
     private readonly HttpClient _client = factory.CreateClient();
+
+    // Fulfillment endpoints are admin-only as of sprint 13.
+    public Task InitializeAsync() => _client.AuthenticateAsAdminAsync();
+
+    public Task DisposeAsync() => Task.CompletedTask;
 
     private static readonly AddressDto Address = new(
         "Grace Hopper", "2 Compiler Court", "Suite 9", "Arlington", "VA", "22201", "US");

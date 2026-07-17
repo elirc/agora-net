@@ -9,11 +9,14 @@ public enum OrderStatus
     Fulfilled = 2,
     Cancelled = 3,
     Refunded = 4,
+    PartiallyFulfilled = 5,
 }
 
 /// <summary>
-/// Customer order. Lifecycle: Pending -> Paid -> Fulfilled, with Cancelled
-/// reachable from Pending/Paid and Refunded reachable from Paid/Fulfilled.
+/// Customer order. Lifecycle: Pending -> Paid -> PartiallyFulfilled ->
+/// Fulfilled (status derives from shipment coverage), with Cancelled reachable
+/// from Pending/Paid (never once anything has shipped) and Refunded reachable
+/// from Paid/PartiallyFulfilled/Fulfilled.
 /// </summary>
 public class Order
 {
@@ -69,7 +72,7 @@ public class Order
 
     public void MarkFulfilled(DateTimeOffset now)
     {
-        if (Status != OrderStatus.Paid)
+        if (Status is not (OrderStatus.Paid or OrderStatus.PartiallyFulfilled))
         {
             throw new InvalidOrderStateException(
                 $"Order {Number} cannot be fulfilled from status {Status}.");
@@ -79,6 +82,19 @@ public class Order
         FulfilledAt = now;
     }
 
+    /// <summary>Some, but not all, line quantities have shipped.</summary>
+    public void MarkPartiallyFulfilled()
+    {
+        if (Status is not (OrderStatus.Paid or OrderStatus.PartiallyFulfilled))
+        {
+            throw new InvalidOrderStateException(
+                $"Order {Number} cannot be partially fulfilled from status {Status}.");
+        }
+
+        Status = OrderStatus.PartiallyFulfilled;
+    }
+
+    /// <summary>Cancellation is only possible before anything has shipped.</summary>
     public void Cancel(DateTimeOffset now)
     {
         if (Status is not (OrderStatus.Pending or OrderStatus.Paid))
@@ -93,7 +109,7 @@ public class Order
 
     public void Refund(DateTimeOffset now)
     {
-        if (Status is not (OrderStatus.Paid or OrderStatus.Fulfilled))
+        if (Status is not (OrderStatus.Paid or OrderStatus.PartiallyFulfilled or OrderStatus.Fulfilled))
         {
             throw new InvalidOrderStateException(
                 $"Order {Number} cannot be refunded from status {Status}.");
