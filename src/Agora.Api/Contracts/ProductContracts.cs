@@ -53,7 +53,8 @@ public sealed record CreateVariantRequest(
     [Required, MaxLength(64)] string Sku,
     [MaxLength(200)] string? Name,
     [Range(0, 1_000_000)] decimal Price,
-    [MaxLength(3)] string? Currency,
+    [RegularExpression("^[A-Za-z]{3}$", ErrorMessage = "Currency must be a 3-letter ISO code.")]
+    string? Currency,
     Dictionary<string, string>? Options);
 
 public sealed record CreateImageRequest(
