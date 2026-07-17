@@ -19,13 +19,18 @@ public sealed record CartResponse(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     IReadOnlyList<CartItemResponse> Items,
+    IReadOnlyList<CartItemResponse> SavedItems,
     int TotalQuantity,
     MoneyDto Subtotal)
 {
-    /// <summary>Maps a cart whose items have their variants (and products) loaded.</summary>
+    /// <summary>
+    /// Maps a cart whose items have their variants (and products) loaded.
+    /// Saved-for-later lines are listed separately and excluded from totals.
+    /// </summary>
     public static CartResponse From(Cart cart)
     {
         var items = new List<CartItemResponse>(cart.Items.Count);
+        var savedItems = new List<CartItemResponse>();
         var subtotal = Money.Zero(
             cart.Items.FirstOrDefault()?.ProductVariant?.Price.Currency ?? Money.DefaultCurrency);
 
@@ -34,8 +39,7 @@ public sealed record CartResponse(
             var variant = item.ProductVariant
                 ?? throw new InvalidOperationException("Cart item variant not loaded.");
             var lineTotal = variant.Price.Multiply(item.Quantity);
-            subtotal = subtotal.Add(lineTotal);
-            items.Add(new CartItemResponse(
+            var response = new CartItemResponse(
                 item.Id,
                 item.ProductVariantId,
                 variant.Sku,
@@ -43,7 +47,17 @@ public sealed record CartResponse(
                 variant.Name,
                 item.Quantity,
                 new MoneyDto(variant.Price.Amount, variant.Price.Currency),
-                new MoneyDto(lineTotal.Amount, lineTotal.Currency)));
+                new MoneyDto(lineTotal.Amount, lineTotal.Currency));
+
+            if (item.IsSavedForLater)
+            {
+                savedItems.Add(response);
+            }
+            else
+            {
+                subtotal = subtotal.Add(lineTotal);
+                items.Add(response);
+            }
         }
 
         return new CartResponse(
@@ -51,6 +65,7 @@ public sealed record CartResponse(
             cart.CreatedAt,
             cart.UpdatedAt,
             items,
+            savedItems,
             items.Sum(i => i.Quantity),
             new MoneyDto(subtotal.Amount, subtotal.Currency));
     }

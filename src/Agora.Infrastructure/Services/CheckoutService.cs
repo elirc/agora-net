@@ -38,12 +38,14 @@ public class CheckoutService(
             .FirstOrDefaultAsync(c => c.Token == input.CartToken, ct)
             ?? throw new NotFoundException($"Cart '{input.CartToken}' not found.");
 
-        if (cart.Items.Count == 0)
+        // Saved-for-later lines stay behind; checkout covers active lines only.
+        var items = cart.ActiveItems.ToList();
+        if (items.Count == 0)
         {
             throw new DomainException("Cannot check out an empty cart.");
         }
 
-        foreach (var item in cart.Items)
+        foreach (var item in items)
         {
             if (item.ProductVariant is null)
             {
@@ -57,8 +59,8 @@ public class CheckoutService(
             }
         }
 
-        var currency = cart.Items[0].ProductVariant!.Price.Currency;
-        var subtotal = cart.Items.Aggregate(
+        var currency = items[0].ProductVariant!.Price.Currency;
+        var subtotal = items.Aggregate(
             Money.Zero(currency),
             (acc, item) => acc.Add(item.ProductVariant!.Price.Multiply(item.Quantity)));
 
@@ -81,7 +83,7 @@ public class CheckoutService(
         }
 
         // Reserve stock for every line (throws InsufficientStockException).
-        foreach (var item in cart.Items)
+        foreach (var item in items)
         {
             var inventory = item.ProductVariant!.Inventory
                 ?? throw new InsufficientStockException(
@@ -92,7 +94,7 @@ public class CheckoutService(
         var discountAmount = discount?.CalculateDiscount(subtotal) ?? Money.Zero(currency);
         var discountedSubtotal = subtotal.Subtract(discountAmount);
         var taxAmount = taxCalculator.CalculateTax(discountedSubtotal);
-        var totalWeightGrams = cart.Items.Sum(i => i.ProductVariant!.WeightGrams * i.Quantity);
+        var totalWeightGrams = items.Sum(i => i.ProductVariant!.WeightGrams * i.Quantity);
         var shippingAmount = shippingMethod.CalculateCharge(discountedSubtotal, totalWeightGrams);
         var total = discountedSubtotal.Add(taxAmount).Add(shippingAmount);
 
@@ -116,7 +118,7 @@ public class CheckoutService(
             CreatedAt = now,
         };
 
-        foreach (var item in cart.Items)
+        foreach (var item in items)
         {
             var variant = item.ProductVariant!;
             order.Items.Add(new OrderItem
@@ -138,7 +140,7 @@ public class CheckoutService(
         var payment = await paymentGateway.ChargeAsync(order.Number, total, input.PaymentToken, ct);
         if (!payment.Success)
         {
-            foreach (var item in cart.Items)
+            foreach (var item in items)
             {
                 item.ProductVariant!.Inventory!.ReleaseReservation(item.Quantity);
             }
@@ -149,13 +151,13 @@ public class CheckoutService(
         }
 
         order.MarkPaid(payment.TransactionId!, now);
-        foreach (var item in cart.Items)
+        foreach (var item in items)
         {
             item.ProductVariant!.Inventory!.CommitReservation(item.Quantity);
         }
 
         discount?.RegisterUse(now);
-        cart.Clear();
+        cart.RemoveActiveItems();
         await db.SaveChangesAsync(ct);
 
         return order;

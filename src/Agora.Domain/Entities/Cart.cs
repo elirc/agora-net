@@ -24,6 +24,7 @@ public class Cart
     {
         ValidateQuantity(quantity);
 
+        // A saved-for-later line for the same variant is re-activated and merged.
         var existing = Items.FirstOrDefault(i => i.ProductVariantId == productVariantId);
         if (existing is null)
         {
@@ -40,10 +41,39 @@ public class Cart
             var merged = existing.Quantity + quantity;
             ValidateQuantity(merged);
             existing.Quantity = merged;
+            existing.IsSavedForLater = false;
         }
 
         Touch();
         return existing;
+    }
+
+    /// <summary>Parks a line: it stays on the cart but leaves totals and checkout.</summary>
+    public CartItem SaveForLater(Guid cartItemId)
+    {
+        var item = FindItem(cartItemId);
+        item.IsSavedForLater = true;
+        Touch();
+        return item;
+    }
+
+    /// <summary>Returns a saved-for-later line to the active cart.</summary>
+    public CartItem ActivateItem(Guid cartItemId)
+    {
+        var item = FindItem(cartItemId);
+        item.IsSavedForLater = false;
+        Touch();
+        return item;
+    }
+
+    /// <summary>Active (purchasable) lines; excludes saved-for-later.</summary>
+    public IEnumerable<CartItem> ActiveItems => Items.Where(i => !i.IsSavedForLater);
+
+    /// <summary>Removes purchased lines after checkout, keeping saved-for-later ones.</summary>
+    public void RemoveActiveItems()
+    {
+        Items.RemoveAll(i => !i.IsSavedForLater);
+        Touch();
     }
 
     /// <summary>Sets a line's quantity; a quantity of zero removes the line.</summary>

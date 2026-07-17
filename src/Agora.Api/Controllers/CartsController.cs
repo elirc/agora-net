@@ -131,6 +131,49 @@ public class CartsController(AgoraDbContext db) : ControllerBase
         return Ok(CartResponse.From(cart));
     }
 
+    /// <summary>Parks a line as saved-for-later (kept on the cart, out of totals/checkout).</summary>
+    [HttpPost("{token}/items/{itemId:guid}/save-for-later")]
+    public async Task<ActionResult<CartResponse>> SaveForLater(
+        string token, Guid itemId, CancellationToken ct)
+    {
+        var cart = await LoadCart(token, tracking: true, ct);
+        if (cart is null)
+        {
+            return NotFound();
+        }
+
+        cart.SaveForLater(itemId); // 404s via NotFoundException
+        await db.SaveChangesAsync(ct);
+        return Ok(CartResponse.From(cart));
+    }
+
+    /// <summary>Moves a saved-for-later line back into the active cart.</summary>
+    [HttpPost("{token}/items/{itemId:guid}/activate")]
+    public async Task<ActionResult<CartResponse>> Activate(
+        string token, Guid itemId, CancellationToken ct)
+    {
+        var cart = await LoadCart(token, tracking: true, ct);
+        if (cart is null)
+        {
+            return NotFound();
+        }
+
+        var item = cart.Items.FirstOrDefault(i => i.Id == itemId);
+        var available = item?.ProductVariant?.Inventory?.QuantityAvailable ?? 0;
+        if (item is not null && item.Quantity > available)
+        {
+            return Conflict(new ProblemDetails
+            {
+                Title = "Insufficient stock",
+                Detail = $"Requested {item.Quantity} but only {available} available.",
+            });
+        }
+
+        cart.ActivateItem(itemId); // 404s via NotFoundException
+        await db.SaveChangesAsync(ct);
+        return Ok(CartResponse.From(cart));
+    }
+
     [HttpDelete("{token}/items/{itemId:guid}")]
     public async Task<ActionResult<CartResponse>> RemoveItem(string token, Guid itemId, CancellationToken ct)
     {

@@ -23,6 +23,8 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
     public DbSet<ShippingMethod> ShippingMethods => Set<ShippingMethod>();
     public DbSet<Review> Reviews => Set<Review>();
     public DbSet<ReviewVote> ReviewVotes => Set<ReviewVote>();
+    public DbSet<Wishlist> Wishlists => Set<Wishlist>();
+    public DbSet<WishlistItem> WishlistItems => Set<WishlistItem>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -106,6 +108,8 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
 
         modelBuilder.Entity<Cart>(cart =>
         {
+            // Computed convenience view over Items; must not become a second navigation.
+            cart.Ignore(c => c.ActiveItems);
             cart.Property(c => c.Token).HasMaxLength(64).IsRequired();
             cart.HasIndex(c => c.Token).IsUnique();
             cart.HasIndex(c => c.CustomerId);
@@ -172,6 +176,29 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
             method.Property(m => m.Code).HasMaxLength(64).IsRequired();
             method.HasIndex(m => m.Code).IsUnique();
             method.Property(m => m.Name).HasMaxLength(200).IsRequired();
+        });
+
+        modelBuilder.Entity<Wishlist>(wishlist =>
+        {
+            wishlist.Property(w => w.Name).HasMaxLength(100).IsRequired();
+            wishlist.HasIndex(w => new { w.CustomerId, w.Name }).IsUnique();
+            wishlist.HasOne<Customer>()
+                .WithMany()
+                .HasForeignKey(w => w.CustomerId)
+                .OnDelete(DeleteBehavior.Cascade);
+            wishlist.HasMany(w => w.Items)
+                .WithOne(i => i.Wishlist)
+                .HasForeignKey(i => i.WishlistId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<WishlistItem>(item =>
+        {
+            item.HasIndex(i => new { i.WishlistId, i.ProductVariantId }).IsUnique();
+            item.HasOne(i => i.ProductVariant)
+                .WithMany()
+                .HasForeignKey(i => i.ProductVariantId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<Review>(review =>
