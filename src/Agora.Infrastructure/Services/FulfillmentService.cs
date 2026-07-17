@@ -12,7 +12,7 @@ public sealed record FulfillmentLineInput(Guid OrderItemId, int Quantity);
 /// cumulative shipment coverage (PartiallyFulfilled until every line is
 /// covered, then Fulfilled).
 /// </summary>
-public class FulfillmentService(AgoraDbContext db)
+public class FulfillmentService(AgoraDbContext db, WebhookService webhookService)
 {
     public const string DefaultCarrier = "Manual";
 
@@ -113,6 +113,13 @@ public class FulfillmentService(AgoraDbContext db)
         }
 
         await db.SaveChangesAsync(ct);
+
+        if (fullyCovered)
+        {
+            await webhookService.DispatchAsync(
+                WebhookEvents.OrderFulfilled, WebhookService.OrderPayload(order), ct);
+        }
+
         return fulfillment;
     }
 

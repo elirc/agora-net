@@ -27,6 +27,9 @@ public sealed class InvalidReturnRequestException(string message) : DomainExcept
 /// <summary>Thrown when a shipping method cannot be used at checkout.</summary>
 public sealed class InvalidShippingMethodException(string message) : DomainException(message);
 
+/// <summary>Thrown when a webhook delivery cannot be retried. Maps to HTTP 409.</summary>
+public sealed class InvalidWebhookDeliveryException(string message) : DomainException(message);
+
 /// <summary>Thrown when a gift card cannot be applied at checkout.</summary>
 public sealed class InvalidGiftCardException(string message) : DomainException(message);
 

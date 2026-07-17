@@ -16,6 +16,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             InvalidOrderStateException => (StatusCodes.Status409Conflict, "Invalid order state"),
             InvalidReturnStateException => (StatusCodes.Status409Conflict, "Invalid return state"),
             InvalidFulfillmentException => (StatusCodes.Status422UnprocessableEntity, "Invalid fulfillment"),
+            InvalidWebhookDeliveryException => (StatusCodes.Status409Conflict, "Invalid webhook delivery"),
             InvalidReturnRequestException => (StatusCodes.Status422UnprocessableEntity, "Invalid return request"),
             InvalidDiscountException => (StatusCodes.Status422UnprocessableEntity, "Invalid discount"),
             InvalidShippingMethodException => (StatusCodes.Status422UnprocessableEntity, "Invalid shipping method"),
