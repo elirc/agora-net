@@ -27,6 +27,10 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
     public DbSet<WishlistItem> WishlistItems => Set<WishlistItem>();
     public DbSet<ReturnRequest> ReturnRequests => Set<ReturnRequest>();
     public DbSet<ReturnRequestItem> ReturnRequestItems => Set<ReturnRequestItem>();
+    public DbSet<TaxCategory> TaxCategories => Set<TaxCategory>();
+    public DbSet<TaxZone> TaxZones => Set<TaxZone>();
+    public DbSet<TaxZoneRate> TaxZoneRates => Set<TaxZoneRate>();
+    public DbSet<GiftCard> GiftCards => Set<GiftCard>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -69,6 +73,10 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
                 .WithMany(c => c.Products)
                 .HasForeignKey(p => p.CategoryId)
                 .OnDelete(DeleteBehavior.Restrict);
+            product.HasOne(p => p.TaxCategory)
+                .WithMany()
+                .HasForeignKey(p => p.TaxCategoryId)
+                .OnDelete(DeleteBehavior.SetNull);
             product.HasMany(p => p.Variants)
                 .WithOne(v => v.Product)
                 .HasForeignKey(v => v.ProductId)
@@ -178,6 +186,49 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
             method.Property(m => m.Code).HasMaxLength(64).IsRequired();
             method.HasIndex(m => m.Code).IsUnique();
             method.Property(m => m.Name).HasMaxLength(200).IsRequired();
+        });
+
+        modelBuilder.Entity<TaxCategory>(category =>
+        {
+            category.Property(c => c.Code).HasMaxLength(64).IsRequired();
+            category.HasIndex(c => c.Code).IsUnique();
+            category.Property(c => c.Name).HasMaxLength(200).IsRequired();
+        });
+
+        modelBuilder.Entity<TaxZone>(zone =>
+        {
+            zone.Property(z => z.Code).HasMaxLength(64).IsRequired();
+            zone.HasIndex(z => z.Code).IsUnique();
+            zone.Property(z => z.Name).HasMaxLength(200).IsRequired();
+            zone.Property(z => z.Country).HasMaxLength(2).IsRequired();
+            zone.Property(z => z.Region).HasMaxLength(100);
+            // Rates need sub-cent precision (e.g. 0.095); override the global
+            // decimal->cents convention.
+            zone.Property(z => z.DefaultRate)
+                .HasConversion<DecimalRateToMillionthsConverter>();
+            zone.HasIndex(z => new { z.Country, z.Region });
+            zone.HasMany(z => z.Rates)
+                .WithOne(r => r.TaxZone)
+                .HasForeignKey(r => r.TaxZoneId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TaxZoneRate>(rate =>
+        {
+            rate.HasIndex(r => new { r.TaxZoneId, r.TaxCategoryId }).IsUnique();
+            rate.Property(r => r.Rate)
+                .HasConversion<DecimalRateToMillionthsConverter>();
+            rate.HasOne(r => r.TaxCategory)
+                .WithMany()
+                .HasForeignKey(r => r.TaxCategoryId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<GiftCard>(card =>
+        {
+            card.Property(c => c.Code).HasMaxLength(32).IsRequired();
+            card.HasIndex(c => c.Code).IsUnique();
+            card.Property(c => c.Currency).HasMaxLength(3);
         });
 
         modelBuilder.Entity<ReturnRequest>(request =>

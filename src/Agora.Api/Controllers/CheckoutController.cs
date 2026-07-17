@@ -25,7 +25,8 @@ public class CheckoutController(CheckoutService checkoutService) : ControllerBas
                 request.PaymentToken,
                 User.GetCustomerId(),
                 request.ShippingMethodCode,
-                request.ShippingAddressId),
+                request.ShippingAddressId,
+                request.GiftCardCode),
             ct);
 
         return CreatedAtRoute("GetOrderByNumber", new { number = order.Number }, OrderResponse.From(order));

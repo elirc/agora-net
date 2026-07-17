@@ -27,3 +27,17 @@ public sealed class DecimalToCentsConverter : ValueConverter<decimal, long>
     {
     }
 }
+
+/// <summary>
+/// Fractional rates (e.g. a 0.095 tax rate) need more precision than cents;
+/// store them as integer millionths.
+/// </summary>
+public sealed class DecimalRateToMillionthsConverter : ValueConverter<decimal, long>
+{
+    public DecimalRateToMillionthsConverter()
+        : base(
+            v => (long)Math.Round(v * 1_000_000m, MidpointRounding.AwayFromZero),
+            v => v / 1_000_000m)
+    {
+    }
+}

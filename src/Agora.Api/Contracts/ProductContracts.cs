@@ -37,7 +37,8 @@ public sealed record ProductResponse(
     IReadOnlyList<VariantResponse> Variants,
     IReadOnlyList<ImageResponse> Images,
     decimal? AverageRating,
-    int ReviewCount)
+    int ReviewCount,
+    string? TaxCategoryCode)
 {
     public static ProductResponse From(
         Product product, decimal? averageRating = null, int reviewCount = 0) => new(
@@ -51,7 +52,8 @@ public sealed record ProductResponse(
         product.Variants.Select(VariantResponse.From).ToList(),
         product.Images.OrderBy(i => i.SortOrder).Select(ImageResponse.From).ToList(),
         averageRating,
-        reviewCount);
+        reviewCount,
+        product.TaxCategory?.Code);
 }
 
 public sealed record CreateVariantRequest(
@@ -74,11 +76,13 @@ public sealed record CreateProductRequest(
     [MaxLength(4000)] string? Description,
     bool? IsActive,
     [Required, MinLength(1)] List<CreateVariantRequest> Variants,
-    List<CreateImageRequest>? Images);
+    List<CreateImageRequest>? Images,
+    [MaxLength(64)] string? TaxCategoryCode = null);
 
 public sealed record UpdateProductRequest(
     [Required] Guid CategoryId,
     [Required, MaxLength(200)] string Name,
     [Required, MaxLength(200)] string Slug,
     [MaxLength(4000)] string? Description,
-    bool IsActive);
+    bool IsActive,
+    [MaxLength(64)] string? TaxCategoryCode = null);

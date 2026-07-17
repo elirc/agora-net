@@ -34,6 +34,11 @@ public class Order
     public decimal Total { get; set; }
 
     public string? DiscountCode { get; set; }
+
+    /// <summary>Gift card tender applied after discounts and tax.</summary>
+    public string? GiftCardCode { get; set; }
+    public decimal GiftCardAmount { get; set; }
+
     public string? PaymentTransactionId { get; private set; }
 
     public string? ShippingMethodCode { get; set; }
