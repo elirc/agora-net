@@ -41,6 +41,15 @@ public class OrderService(AgoraDbContext db, IPaymentGateway paymentGateway)
     {
         var order = await LoadAsync(number, ct);
 
+        // A full refund on top of an accepted partial return would over-refund.
+        var hasAcceptedReturns = await db.ReturnRequests.AnyAsync(
+            r => r.OrderId == order.Id && r.Status == ReturnStatus.Approved, ct);
+        if (hasAcceptedReturns)
+        {
+            throw new InvalidOrderStateException(
+                $"Order {order.Number} has approved returns; refund the remaining lines via RMAs instead.");
+        }
+
         order.Refund(DateTimeOffset.UtcNow);
 
         await paymentGateway.RefundAsync(

@@ -43,6 +43,7 @@ public sealed record CheckoutRequest(
     Guid? ShippingAddressId = null);
 
 public sealed record OrderItemResponse(
+    Guid Id,
     Guid ProductVariantId,
     string Sku,
     string ProductName,
@@ -52,6 +53,7 @@ public sealed record OrderItemResponse(
     decimal LineTotal)
 {
     public static OrderItemResponse From(OrderItem item) => new(
+        item.Id,
         item.ProductVariantId,
         item.Sku,
         item.ProductName,

@@ -50,6 +50,7 @@ builder.Services.AddSingleton<ITaxCalculator, FlatRateTaxCalculator>();
 builder.Services.AddSingleton<IPaymentGateway, FakePaymentGateway>();
 builder.Services.AddScoped<CheckoutService>();
 builder.Services.AddScoped<OrderService>();
+builder.Services.AddScoped<ReturnService>();
 
 var app = builder.Build();
 
