@@ -1,0 +1,16 @@
+namespace Agora.Domain.Common;
+
+/// <summary>Base exception for domain rule violations. Maps to HTTP 400/409 at the API edge.</summary>
+public class DomainException(string message) : Exception(message);
+
+/// <summary>Thrown when a requested aggregate does not exist. Maps to HTTP 404.</summary>
+public sealed class NotFoundException(string message) : DomainException(message);
+
+/// <summary>Thrown when a stock operation cannot be satisfied by available inventory.</summary>
+public sealed class InsufficientStockException(string message) : DomainException(message);
+
+/// <summary>Thrown on an illegal order lifecycle transition.</summary>
+public sealed class InvalidOrderStateException(string message) : DomainException(message);
+
+/// <summary>Thrown when a discount code cannot be applied.</summary>
+public sealed class InvalidDiscountException(string message) : DomainException(message);
