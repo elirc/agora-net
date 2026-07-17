@@ -11,6 +11,16 @@ An e-commerce platform backend built with C# / .NET 10 and ASP.NET Core Web API 
 | `src/Agora.Infrastructure` | EF Core (SQLite) persistence, migrations, seeder, checkout/order/return/fulfillment/tax/webhook services, fake gateway + webhook sender |
 | `tests/Agora.Tests` | xUnit: domain unit tests + `WebApplicationFactory` integration tests over in-memory SQLite |
 
+## Documentation
+
+| Doc | Contents |
+| --- | --- |
+| [docs/getting-started.md](docs/getting-started.md) | Run, seed data, and a verified curl walkthrough: browse → cart → checkout with discount + gift card → fulfill → RMA refund |
+| [docs/architecture.md](docs/architecture.md) | Layering, `Money` + the cents/millionths converters, the checkout pipeline, order-status derivation, tender ordering, webhook delivery |
+| [docs/api-reference.md](docs/api-reference.md) | Every endpoint: method, route, auth, request/response shape, error codes |
+| [docs/adr/](docs/adr/) | Eight decision records — decimal-as-cents, Money, reserve→charge→commit, tender ordering, derived status, optimistic concurrency, HMAC webhooks, guest tokens |
+| [docs/testing.md](docs/testing.md) | Test taxonomy, harness design, how to run |
+
 ## Getting started
 
 ```bash
@@ -117,7 +127,7 @@ All failures are RFC 7807 `application/problem+json`: model validation → 400 w
 - **Request logging** via built-in HTTP logging (method, path, status, duration).
 - **Health checks**: `/health` liveness, `/health/ready` readiness with a database probe.
 - **Pagination audit**: every unbounded list is paged (`{ items, page, pageSize, totalCount, totalPages }`) with `pageSize ≤ 100`; per-customer/per-order sublists (addresses, wishlists, fulfillments) are bounded by ownership.
-- **Optimistic concurrency**: `InventoryItem` and `Cart` carry a `Version` token bumped on every mutation; competing writes fail with 409 (`DbUpdateConcurrencyException` mapped to ProblemDetails).
+- **Optimistic concurrency**: `InventoryItem`, `Cart` and `GiftCard` carry a `Version` token bumped on every mutation; competing writes fail with 409 (`DbUpdateConcurrencyException` mapped to ProblemDetails).
 - **Rate limiting**: checkout uses a per-client fixed window (`RateLimiting:Checkout`, default 10/min) returning 429.
 
 ## Tech notes
@@ -132,7 +142,7 @@ All failures are RFC 7807 `application/problem+json`: model validation → 400 w
 ## Development
 
 ```bash
-dotnet test                                   # 340 tests, unit + integration
+dotnet test                                   # 427 tests, unit + integration
 dotnet tool run dotnet-ef -- migrations add <Name> \
   --project src/Agora.Infrastructure --startup-project src/Agora.Api
 ```
