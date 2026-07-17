@@ -27,8 +27,7 @@ public class OrderService(AgoraDbContext db, IPaymentGateway paymentGateway)
 
         if (wasPaid)
         {
-            await paymentGateway.RefundAsync(
-                order.PaymentTransactionId!, new Money(order.Total, order.Currency), ct);
+            await RefundTenderAsync(order, ct);
             await RestockAsync(order, ct);
         }
 
@@ -52,8 +51,7 @@ public class OrderService(AgoraDbContext db, IPaymentGateway paymentGateway)
 
         order.Refund(DateTimeOffset.UtcNow);
 
-        await paymentGateway.RefundAsync(
-            order.PaymentTransactionId!, new Money(order.Total, order.Currency), ct);
+        await RefundTenderAsync(order, ct);
         await RestockAsync(order, ct);
 
         await db.SaveChangesAsync(ct);
@@ -71,6 +69,26 @@ public class OrderService(AgoraDbContext db, IPaymentGateway paymentGateway)
             .Include(o => o.Items)
             .FirstOrDefaultAsync(o => o.Number == number, ct)
         ?? throw new NotFoundException($"Order '{number}' not found.");
+
+    /// <summary>
+    /// Returns each tender to its source: the gateway charge is refunded and
+    /// any gift card portion is credited back to the card.
+    /// </summary>
+    private async Task RefundTenderAsync(Order order, CancellationToken ct)
+    {
+        var chargedAmount = order.Total - order.GiftCardAmount;
+        if (chargedAmount > 0)
+        {
+            await paymentGateway.RefundAsync(
+                order.PaymentTransactionId!, new Money(chargedAmount, order.Currency), ct);
+        }
+
+        if (order.GiftCardAmount > 0 && order.GiftCardCode is { } cardCode)
+        {
+            var giftCard = await db.GiftCards.FirstOrDefaultAsync(g => g.Code == cardCode, ct);
+            giftCard?.Credit(order.GiftCardAmount);
+        }
+    }
 
     private async Task RestockAsync(Order order, CancellationToken ct)
     {

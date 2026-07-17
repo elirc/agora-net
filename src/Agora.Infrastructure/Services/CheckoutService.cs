@@ -14,18 +14,20 @@ public sealed record CheckoutInput(
     string PaymentToken,
     Guid? CustomerId = null,
     string? ShippingMethodCode = null,
-    Guid? ShippingAddressId = null);
+    Guid? ShippingAddressId = null,
+    string? GiftCardCode = null);
 
 /// <summary>
 /// Turns a cart into a paid order:
 /// validate -> reserve stock -> persist pending order -> charge gateway ->
 /// commit reservations + mark paid (or release reservations on decline).
-/// Shipping is priced by the selected <see cref="ShippingMethod"/> (or the
-/// configured default) and the address may come from the customer's address book.
+/// Totals follow discounts -> tax -> gift card tender: zone-based tax is
+/// computed on the discounted lines, and any gift card is applied to the
+/// final total with only the remainder charged to the gateway.
 /// </summary>
 public class CheckoutService(
     AgoraDbContext db,
-    ITaxCalculator taxCalculator,
+    TaxService taxService,
     IPaymentGateway paymentGateway)
 {
     public async Task<Order> CheckoutAsync(CheckoutInput input, CancellationToken ct = default)
@@ -82,6 +84,25 @@ public class CheckoutService(
             }
         }
 
+        // Validate the gift card up front as well (side-effect free failure).
+        GiftCard? giftCard = null;
+        if (!string.IsNullOrWhiteSpace(input.GiftCardCode))
+        {
+            var code = input.GiftCardCode.Trim().ToUpperInvariant();
+            giftCard = await db.GiftCards.FirstOrDefaultAsync(g => g.Code == code, ct)
+                ?? throw new InvalidGiftCardException($"Gift card '{code}' does not exist.");
+            if (!giftCard.IsRedeemable(now))
+            {
+                throw new InvalidGiftCardException($"Gift card '{code}' is not redeemable.");
+            }
+
+            if (!string.Equals(giftCard.Currency, currency, StringComparison.Ordinal))
+            {
+                throw new InvalidGiftCardException(
+                    $"Gift card '{code}' is in {giftCard.Currency}, not {currency}.");
+            }
+        }
+
         // Reserve stock for every line (throws InsufficientStockException).
         foreach (var item in items)
         {
@@ -91,12 +112,23 @@ public class CheckoutService(
             inventory.Reserve(item.Quantity);
         }
 
+        // Ordering rules: discounts -> tax -> gift card tender.
         var discountAmount = discount?.CalculateDiscount(subtotal) ?? Money.Zero(currency);
         var discountedSubtotal = subtotal.Subtract(discountAmount);
-        var taxAmount = taxCalculator.CalculateTax(discountedSubtotal);
+        var discountRate = subtotal.Amount > 0 ? discountAmount.Amount / subtotal.Amount : 0m;
+        var taxLines = items
+            .Select(i => new TaxLine(
+                i.ProductVariant!.Product?.TaxCategoryId,
+                i.ProductVariant.Price.Amount * i.Quantity * (1 - discountRate)))
+            .ToList();
+        var taxAmount = await taxService.CalculateTaxAsync(shippingAddress, taxLines, currency, ct);
         var totalWeightGrams = items.Sum(i => i.ProductVariant!.WeightGrams * i.Quantity);
         var shippingAmount = shippingMethod.CalculateCharge(discountedSubtotal, totalWeightGrams);
         var total = discountedSubtotal.Add(taxAmount).Add(shippingAmount);
+
+        // Gift card tender comes off the final total; the gateway sees the rest.
+        var giftCardApplied = giftCard is null ? 0m : Math.Min(giftCard.Balance, total.Amount);
+        var chargeAmount = new Money(total.Amount - giftCardApplied, currency);
 
         var order = new Order
         {
@@ -115,6 +147,8 @@ public class CheckoutService(
             ShippingAmount = shippingAmount.Amount,
             Total = total.Amount,
             DiscountCode = discount?.Code,
+            GiftCardCode = giftCard?.Code,
+            GiftCardAmount = giftCardApplied,
             CreatedAt = now,
         };
 
@@ -137,20 +171,37 @@ public class CheckoutService(
         db.Orders.Add(order);
         await db.SaveChangesAsync(ct); // reservations + pending order persisted together
 
-        var payment = await paymentGateway.ChargeAsync(order.Number, total, input.PaymentToken, ct);
-        if (!payment.Success)
+        // A fully gift-card-covered order never touches the gateway.
+        string transactionId;
+        if (chargeAmount.Amount > 0)
         {
-            foreach (var item in items)
+            var payment = await paymentGateway.ChargeAsync(
+                order.Number, chargeAmount, input.PaymentToken, ct);
+            if (!payment.Success)
             {
-                item.ProductVariant!.Inventory!.ReleaseReservation(item.Quantity);
+                foreach (var item in items)
+                {
+                    item.ProductVariant!.Inventory!.ReleaseReservation(item.Quantity);
+                }
+
+                db.Orders.Remove(order);
+                await db.SaveChangesAsync(ct); // gift card untouched: nothing redeemed yet
+                throw new PaymentFailedException($"Payment declined ({payment.FailureReason}).");
             }
 
-            db.Orders.Remove(order);
-            await db.SaveChangesAsync(ct);
-            throw new PaymentFailedException($"Payment declined ({payment.FailureReason}).");
+            transactionId = payment.TransactionId!;
+        }
+        else
+        {
+            transactionId = $"gift_{giftCard!.Code}";
         }
 
-        order.MarkPaid(payment.TransactionId!, now);
+        if (giftCardApplied > 0)
+        {
+            giftCard!.Redeem(giftCardApplied);
+        }
+
+        order.MarkPaid(transactionId, now);
         foreach (var item in items)
         {
             item.ProductVariant!.Inventory!.CommitReservation(item.Quantity);

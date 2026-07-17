@@ -40,7 +40,8 @@ public sealed record CheckoutRequest(
     [MaxLength(64)] string? DiscountCode,
     [Required, MaxLength(128)] string PaymentToken,
     [MaxLength(64)] string? ShippingMethodCode = null,
-    Guid? ShippingAddressId = null);
+    Guid? ShippingAddressId = null,
+    [MaxLength(32)] string? GiftCardCode = null);
 
 public sealed record OrderItemResponse(
     Guid Id,
@@ -75,6 +76,8 @@ public sealed record OrderResponse(
     decimal ShippingAmount,
     decimal Total,
     string? DiscountCode,
+    string? GiftCardCode,
+    decimal GiftCardAmount,
     string? PaymentTransactionId,
     string? ShippingMethodCode,
     string? ShippingMethodName,
@@ -99,6 +102,8 @@ public sealed record OrderResponse(
         order.ShippingAmount,
         order.Total,
         order.DiscountCode,
+        order.GiftCardCode,
+        order.GiftCardAmount,
         order.PaymentTransactionId,
         order.ShippingMethodCode,
         order.ShippingMethodName,

@@ -18,6 +18,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             InvalidReturnRequestException => (StatusCodes.Status422UnprocessableEntity, "Invalid return request"),
             InvalidDiscountException => (StatusCodes.Status422UnprocessableEntity, "Invalid discount"),
             InvalidShippingMethodException => (StatusCodes.Status422UnprocessableEntity, "Invalid shipping method"),
+            InvalidGiftCardException => (StatusCodes.Status422UnprocessableEntity, "Invalid gift card"),
             PaymentFailedException => (StatusCodes.Status402PaymentRequired, "Payment failed"),
             DomainException => (StatusCodes.Status400BadRequest, "Domain rule violation"),
             _ => (0, string.Empty),

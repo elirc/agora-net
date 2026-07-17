@@ -24,5 +24,8 @@ public sealed class InvalidReturnRequestException(string message) : DomainExcept
 /// <summary>Thrown when a shipping method cannot be used at checkout.</summary>
 public sealed class InvalidShippingMethodException(string message) : DomainException(message);
 
+/// <summary>Thrown when a gift card cannot be applied at checkout.</summary>
+public sealed class InvalidGiftCardException(string message) : DomainException(message);
+
 /// <summary>Thrown when the payment gateway declines a charge. Maps to HTTP 402.</summary>
 public sealed class PaymentFailedException(string message) : DomainException(message);

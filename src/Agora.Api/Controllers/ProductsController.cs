@@ -44,6 +44,7 @@ public class ProductsController(AgoraDbContext db) : ControllerBase
             .AsNoTracking()
             .Include(p => p.Variants)
             .Include(p => p.Images)
+            .Include(p => p.TaxCategory)
             .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(search))
@@ -147,6 +148,13 @@ public class ProductsController(AgoraDbContext db) : ControllerBase
             return Conflict(new ProblemDetails { Title = "One or more SKUs already exist." });
         }
 
+        var (taxCategoryId, taxCategoryError) =
+            await ResolveTaxCategoryAsync(request.TaxCategoryCode, ct);
+        if (taxCategoryError is not null)
+        {
+            return taxCategoryError;
+        }
+
         var product = new Product
         {
             CategoryId = request.CategoryId,
@@ -154,6 +162,7 @@ public class ProductsController(AgoraDbContext db) : ControllerBase
             Slug = slug,
             Description = request.Description ?? string.Empty,
             IsActive = request.IsActive ?? true,
+            TaxCategoryId = taxCategoryId,
         };
 
         foreach (var variantRequest in request.Variants)
@@ -183,6 +192,7 @@ public class ProductsController(AgoraDbContext db) : ControllerBase
 
         db.Products.Add(product);
         await db.SaveChangesAsync(ct);
+        await db.Entry(product).Reference(p => p.TaxCategory).LoadAsync(ct);
 
         return CreatedAtAction(nameof(GetById), new { id = product.Id }, ProductResponse.From(product));
     }
@@ -210,12 +220,21 @@ public class ProductsController(AgoraDbContext db) : ControllerBase
             return Conflict(new ProblemDetails { Title = $"A product with slug '{request.Slug}' already exists." });
         }
 
+        var (taxCategoryId, taxCategoryError) =
+            await ResolveTaxCategoryAsync(request.TaxCategoryCode, ct);
+        if (taxCategoryError is not null)
+        {
+            return taxCategoryError;
+        }
+
         product.CategoryId = request.CategoryId;
         product.Name = request.Name.Trim();
         product.Slug = request.Slug.Trim();
         product.Description = request.Description ?? string.Empty;
         product.IsActive = request.IsActive;
+        product.TaxCategoryId = taxCategoryId;
         await db.SaveChangesAsync(ct);
+        await db.Entry(product).Reference(p => p.TaxCategory).LoadAsync(ct);
 
         return Ok(ProductResponse.From(product));
     }
@@ -233,6 +252,25 @@ public class ProductsController(AgoraDbContext db) : ControllerBase
         db.Products.Remove(product);
         await db.SaveChangesAsync(ct);
         return NoContent();
+    }
+
+    /// <summary>Maps an optional tax category code to its id; error result when unknown.</summary>
+    private async Task<(Guid? Id, ObjectResult? Error)> ResolveTaxCategoryAsync(
+        string? code, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            return (null, null);
+        }
+
+        var normalized = code.Trim().ToLowerInvariant();
+        var category = await db.TaxCategories.FirstOrDefaultAsync(c => c.Code == normalized, ct);
+        return category is null
+            ? (null, UnprocessableEntity(new ProblemDetails
+            {
+                Title = $"Tax category '{normalized}' does not exist.",
+            }))
+            : (category.Id, null);
     }
 
     /// <summary>Approved-review aggregates (average rating, count) for a set of products.</summary>
@@ -269,5 +307,6 @@ public class ProductsController(AgoraDbContext db) : ControllerBase
             .AsNoTracking()
             .Include(p => p.Variants)
             .Include(p => p.Images)
+            .Include(p => p.TaxCategory)
             .FirstOrDefaultAsync(predicate, ct);
 }

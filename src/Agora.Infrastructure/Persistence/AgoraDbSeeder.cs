@@ -61,6 +61,36 @@ public static class AgoraDbSeeder
             await db.SaveChangesAsync(ct);
         }
 
+        if (!await db.TaxZones.AnyAsync(ct))
+        {
+            var standard = new TaxCategory { Code = "standard", Name = "Standard rate" };
+            var reduced = new TaxCategory { Code = "reduced", Name = "Reduced rate" };
+            var zero = new TaxCategory { Code = "zero", Name = "Zero rated" };
+            db.TaxCategories.AddRange(standard, reduced, zero);
+
+            var us = new TaxZone
+            {
+                Code = "us",
+                Name = "United States",
+                Country = "US",
+                DefaultRate = 0.08m,
+            };
+            us.Rates.Add(new TaxZoneRate { TaxZoneId = us.Id, TaxCategoryId = zero.Id, Rate = 0m });
+
+            var gb = new TaxZone
+            {
+                Code = "gb",
+                Name = "United Kingdom",
+                Country = "GB",
+                DefaultRate = 0.08m,
+            };
+            gb.Rates.Add(new TaxZoneRate { TaxZoneId = gb.Id, TaxCategoryId = reduced.Id, Rate = 0.05m });
+            gb.Rates.Add(new TaxZoneRate { TaxZoneId = gb.Id, TaxCategoryId = zero.Id, Rate = 0m });
+
+            db.TaxZones.AddRange(us, gb);
+            await db.SaveChangesAsync(ct);
+        }
+
         if (await db.Categories.AnyAsync(ct))
         {
             return;
