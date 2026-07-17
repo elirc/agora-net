@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Agora.Api/Agora.Api.csproj" />
+    <Project Path="src/Agora.Domain/Agora.Domain.csproj" />
+    <Project Path="src/Agora.Infrastructure/Agora.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Agora.Tests/Agora.Tests.csproj" />
+  </Folder>
+</Solution>
