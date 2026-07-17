@@ -113,7 +113,10 @@ public class ReturnService(AgoraDbContext db, IPaymentGateway paymentGateway)
         return request;
     }
 
-    /// <summary>Approves the RMA: refunds through the gateway and restocks the units.</summary>
+    /// <summary>
+    /// Approves the RMA: refunds each tender to its source (gateway charge
+    /// first, then gift card credit) and restocks the units.
+    /// </summary>
     public async Task<ReturnRequest> ApproveAsync(string number, CancellationToken ct = default)
     {
         var request = await LoadAsync(number, ct);
@@ -125,14 +128,43 @@ public class ReturnService(AgoraDbContext db, IPaymentGateway paymentGateway)
                 $"Return {request.Number} cannot be approved from status {request.Status}.");
         }
 
-        var refund = await paymentGateway.RefundAsync(
-            order.PaymentTransactionId!, new Money(request.RefundAmount, request.Currency), ct);
-        if (!refund.Success)
+        // Tender-aware split: the gateway was only charged Total - GiftCardAmount,
+        // so refunds drain that gateway charge first (counting refunds already
+        // issued for earlier approved RMAs) and credit the rest to the gift card.
+        var gatewayCharged = order.Total - order.GiftCardAmount;
+        var previouslyRefunded = await db.ReturnRequests
+            .Where(r => r.OrderId == order.Id
+                        && r.Status == ReturnStatus.Approved
+                        && r.Id != request.Id)
+            .SumAsync(r => (decimal?)r.RefundAmount, ct) ?? 0m;
+        var gatewayRemaining = Math.Max(0m, gatewayCharged - previouslyRefunded);
+        var gatewayPortion = Math.Min(request.RefundAmount, gatewayRemaining);
+        var giftCardPortion = request.RefundAmount - gatewayPortion;
+
+        string refundTransactionId;
+        if (gatewayPortion > 0)
         {
-            throw new PaymentFailedException($"Refund failed ({refund.FailureReason}).");
+            var refund = await paymentGateway.RefundAsync(
+                order.PaymentTransactionId!, new Money(gatewayPortion, request.Currency), ct);
+            if (!refund.Success)
+            {
+                throw new PaymentFailedException($"Refund failed ({refund.FailureReason}).");
+            }
+
+            refundTransactionId = refund.TransactionId!;
+        }
+        else
+        {
+            refundTransactionId = $"gcref_{Guid.NewGuid():N}";
         }
 
-        request.Approve(refund.TransactionId!, DateTimeOffset.UtcNow);
+        if (giftCardPortion > 0 && order.GiftCardCode is { } cardCode)
+        {
+            var giftCard = await db.GiftCards.FirstOrDefaultAsync(g => g.Code == cardCode, ct);
+            giftCard?.Credit(giftCardPortion);
+        }
+
+        request.Approve(refundTransactionId, DateTimeOffset.UtcNow);
 
         var variantIds = request.Items.Select(i => i.ProductVariantId).ToList();
         var inventories = await db.InventoryItems

@@ -17,6 +17,12 @@ public class GiftCard
     public DateTimeOffset? ExpiresAt { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
+    /// <summary>
+    /// Optimistic-concurrency token: every balance mutation bumps it, so two
+    /// interleaved redemptions cannot both draw from the same balance snapshot.
+    /// </summary>
+    public int Version { get; private set; }
+
     private GiftCard()
     {
         // EF Core materialization.
@@ -53,6 +59,7 @@ public class GiftCard
         }
 
         Balance -= amount;
+        Version++;
     }
 
     /// <summary>Returns tender to the card (order refund/cancellation).</summary>
@@ -64,6 +71,7 @@ public class GiftCard
         }
 
         Balance += amount;
+        Version++;
     }
 
     private static string GenerateCode() =>

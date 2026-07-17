@@ -278,6 +278,7 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
             card.Property(c => c.Code).HasMaxLength(32).IsRequired();
             card.HasIndex(c => c.Code).IsUnique();
             card.Property(c => c.Currency).HasMaxLength(3);
+            card.Property(c => c.Version).IsConcurrencyToken();
         });
 
         modelBuilder.Entity<ReturnRequest>(request =>
