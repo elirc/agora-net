@@ -12,14 +12,28 @@ namespace Agora.Api.Controllers;
 [Route("api/categories")]
 public class CategoriesController(AgoraDbContext db) : ControllerBase
 {
+    public const int MaxPageSize = 100;
+
     [HttpGet]
-    public async Task<ActionResult<List<CategoryResponse>>> List(CancellationToken ct)
+    public async Task<ActionResult<PagedResult<CategoryResponse>>> List(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
+        CancellationToken ct = default)
     {
-        var categories = await db.Categories
-            .AsNoTracking()
-            .OrderBy(c => c.Name)
-            .ToListAsync(ct);
-        return Ok(categories.Select(CategoryResponse.From).ToList());
+        if (page < 1 || pageSize < 1 || pageSize > MaxPageSize)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Title = $"page must be >= 1 and pageSize between 1 and {MaxPageSize}.",
+            });
+        }
+
+        var query = db.Categories.AsNoTracking().OrderBy(c => c.Name);
+        var totalCount = await query.CountAsync(ct);
+        var categories = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+
+        return Ok(new PagedResult<CategoryResponse>(
+            categories.Select(CategoryResponse.From).ToList(), page, pageSize, totalCount));
     }
 
     [HttpGet("{id:guid}")]

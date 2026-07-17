@@ -18,6 +18,12 @@ public class InventoryItem
     public int QuantityReserved { get; private set; }
     public int QuantityAvailable => QuantityOnHand - QuantityReserved;
 
+    /// <summary>
+    /// Optimistic-concurrency token: every stock mutation bumps it, so two
+    /// interleaved writers cannot both commit against the same snapshot.
+    /// </summary>
+    public int Version { get; private set; }
+
     private InventoryItem()
     {
         // EF Core materialization.
@@ -49,6 +55,7 @@ public class InventoryItem
         }
 
         QuantityOnHand = quantityOnHand;
+        Version++;
     }
 
     public void Reserve(int quantity)
@@ -61,12 +68,14 @@ public class InventoryItem
         }
 
         QuantityReserved += quantity;
+        Version++;
     }
 
     public void ReleaseReservation(int quantity)
     {
         EnsurePositive(quantity);
         QuantityReserved = Math.Max(0, QuantityReserved - quantity);
+        Version++;
     }
 
     /// <summary>Converts a reservation into a real deduction (payment succeeded).</summary>
@@ -81,6 +90,7 @@ public class InventoryItem
 
         QuantityReserved -= quantity;
         QuantityOnHand -= quantity;
+        Version++;
     }
 
     /// <summary>Returns units to stock (cancellation/refund restock).</summary>
@@ -88,6 +98,7 @@ public class InventoryItem
     {
         EnsurePositive(quantity);
         QuantityOnHand += quantity;
+        Version++;
     }
 
     private static void EnsurePositive(int quantity)

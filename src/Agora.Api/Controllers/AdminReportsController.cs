@@ -105,8 +105,10 @@ public class AdminReportsController(AgoraDbContext db) : ControllerBase
 
     /// <summary>Variants at or below the availability threshold, scarcest first.</summary>
     [HttpGet("low-stock")]
-    public async Task<ActionResult<List<LowStockResponse>>> LowStock(
+    public async Task<ActionResult<PagedResult<LowStockResponse>>> LowStock(
         [FromQuery] int threshold = 5,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
         CancellationToken ct = default)
     {
         if (threshold < 0)
@@ -114,22 +116,33 @@ public class AdminReportsController(AgoraDbContext db) : ControllerBase
             return BadRequest(new ProblemDetails { Title = "threshold must be >= 0." });
         }
 
-        var rows = await db.InventoryItems
+        if (page < 1 || pageSize < 1 || pageSize > 100)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Title = "page must be >= 1 and pageSize between 1 and 100.",
+            });
+        }
+
+        var query = db.InventoryItems
             .AsNoTracking()
             .Include(i => i.ProductVariant).ThenInclude(v => v!.Product)
             .Where(i => i.QuantityOnHand - i.QuantityReserved <= threshold)
-            .OrderBy(i => i.QuantityOnHand - i.QuantityReserved)
-            .ToListAsync(ct);
+            .OrderBy(i => i.QuantityOnHand - i.QuantityReserved);
 
-        return Ok(rows
-            .Select(i => new LowStockResponse(
-                i.ProductVariant!.Sku,
-                i.ProductVariant.Product?.Name ?? string.Empty,
-                i.ProductVariant.Name,
-                i.QuantityOnHand,
-                i.QuantityReserved,
-                i.QuantityAvailable))
-            .ToList());
+        var totalCount = await query.CountAsync(ct);
+        var rows = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+
+        return Ok(new PagedResult<LowStockResponse>(
+            rows.Select(i => new LowStockResponse(
+                    i.ProductVariant!.Sku,
+                    i.ProductVariant.Product?.Name ?? string.Empty,
+                    i.ProductVariant.Name,
+                    i.QuantityOnHand,
+                    i.QuantityReserved,
+                    i.QuantityAvailable))
+                .ToList(),
+            page, pageSize, totalCount));
     }
 
     /// <summary>Redemption stats per discount code.</summary>

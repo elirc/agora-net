@@ -67,7 +67,7 @@ public class ProductsApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiF
     [Fact]
     public async Task List_FilterByCategorySlug_ReturnsOnlyThatCategory()
     {
-        var categories = await _client.GetFromJsonAsync<List<CategoryResponse>>("/api/categories");
+        var categories = (await _client.GetFromJsonAsync<PagedResult<CategoryResponse>>("/api/categories"))!.Items;
         var electronics = categories!.Single(c => c.Slug == "electronics");
 
         var result = await _client.GetFromJsonAsync<PagedResult<ProductResponse>>(
@@ -134,7 +134,7 @@ public class ProductsApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiF
     [Fact]
     public async Task Create_Returns201_WithVariants()
     {
-        var categories = await _client.GetFromJsonAsync<List<CategoryResponse>>("/api/categories");
+        var categories = (await _client.GetFromJsonAsync<PagedResult<CategoryResponse>>("/api/categories"))!.Items;
         var home = categories!.Single(c => c.Slug == "home-kitchen");
 
         var response = await _client.PostAsJsonAsync("/api/products", new CreateProductRequest(
@@ -159,7 +159,7 @@ public class ProductsApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiF
     [Fact]
     public async Task Create_WithExistingSku_Returns409()
     {
-        var categories = await _client.GetFromJsonAsync<List<CategoryResponse>>("/api/categories");
+        var categories = (await _client.GetFromJsonAsync<PagedResult<CategoryResponse>>("/api/categories"))!.Items;
 
         var response = await _client.PostAsJsonAsync("/api/products", new CreateProductRequest(
             categories![0].Id, "Sku Clash", "sku-clash", null, null,
@@ -171,7 +171,7 @@ public class ProductsApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiF
     [Fact]
     public async Task Create_WithDuplicateSkusInRequest_Returns422()
     {
-        var categories = await _client.GetFromJsonAsync<List<CategoryResponse>>("/api/categories");
+        var categories = (await _client.GetFromJsonAsync<PagedResult<CategoryResponse>>("/api/categories"))!.Items;
 
         var response = await _client.PostAsJsonAsync("/api/products", new CreateProductRequest(
             categories![0].Id, "Dup Sku", "dup-sku", null, null,
@@ -197,7 +197,7 @@ public class ProductsApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiF
     [Fact]
     public async Task Create_WithNoVariants_Returns400()
     {
-        var categories = await _client.GetFromJsonAsync<List<CategoryResponse>>("/api/categories");
+        var categories = (await _client.GetFromJsonAsync<PagedResult<CategoryResponse>>("/api/categories"))!.Items;
 
         var response = await _client.PostAsJsonAsync("/api/products", new CreateProductRequest(
             categories![0].Id, "Variantless", "variantless", null, null, [], null));
@@ -233,7 +233,7 @@ public class ProductsApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiF
 
     private async Task<ProductResponse> CreateSimpleProduct(string name, string sku)
     {
-        var categories = await _client.GetFromJsonAsync<List<CategoryResponse>>("/api/categories");
+        var categories = (await _client.GetFromJsonAsync<PagedResult<CategoryResponse>>("/api/categories"))!.Items;
         var response = await _client.PostAsJsonAsync("/api/products", new CreateProductRequest(
             categories![0].Id, name, null, null, null,
             [new CreateVariantRequest(sku, null, 10m, null, null)], null));

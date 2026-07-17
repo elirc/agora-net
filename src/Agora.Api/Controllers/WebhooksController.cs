@@ -16,13 +16,26 @@ public class WebhooksController(AgoraDbContext db, WebhookService webhookService
     public const int MaxPageSize = 100;
 
     [HttpGet]
-    public async Task<ActionResult<List<WebhookSubscriptionResponse>>> List(CancellationToken ct)
+    public async Task<ActionResult<PagedResult<WebhookSubscriptionResponse>>> List(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
+        CancellationToken ct = default)
     {
-        var subscriptions = await db.WebhookSubscriptions
-            .AsNoTracking()
-            .OrderBy(s => s.CreatedAt)
-            .ToListAsync(ct);
-        return Ok(subscriptions.Select(WebhookSubscriptionResponse.From).ToList());
+        if (page < 1 || pageSize < 1 || pageSize > MaxPageSize)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Title = $"page must be >= 1 and pageSize between 1 and {MaxPageSize}.",
+            });
+        }
+
+        var query = db.WebhookSubscriptions.AsNoTracking().OrderBy(s => s.CreatedAt);
+        var totalCount = await query.CountAsync(ct);
+        var subscriptions = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+
+        return Ok(new PagedResult<WebhookSubscriptionResponse>(
+            subscriptions.Select(WebhookSubscriptionResponse.From).ToList(),
+            page, pageSize, totalCount));
     }
 
     [HttpGet("{id:guid}")]

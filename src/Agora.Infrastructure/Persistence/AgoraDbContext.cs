@@ -114,6 +114,7 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
         modelBuilder.Entity<InventoryItem>(inventory =>
         {
             inventory.HasIndex(i => i.ProductVariantId).IsUnique();
+            inventory.Property(i => i.Version).IsConcurrencyToken();
             inventory.HasOne(i => i.ProductVariant)
                 .WithOne(v => v.Inventory)
                 .HasForeignKey<InventoryItem>(i => i.ProductVariantId)
@@ -126,6 +127,7 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
             cart.Ignore(c => c.ActiveItems);
             cart.Property(c => c.Token).HasMaxLength(64).IsRequired();
             cart.HasIndex(c => c.Token).IsUnique();
+            cart.Property(c => c.Version).IsConcurrencyToken();
             cart.HasIndex(c => c.CustomerId);
             cart.HasOne<Customer>()
                 .WithMany()

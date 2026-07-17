@@ -12,11 +12,28 @@ namespace Agora.Api.Controllers;
 [Route("api/discounts")]
 public class DiscountsController(AgoraDbContext db) : ControllerBase
 {
+    public const int MaxPageSize = 100;
+
     [HttpGet]
-    public async Task<ActionResult<List<DiscountResponse>>> List(CancellationToken ct)
+    public async Task<ActionResult<PagedResult<DiscountResponse>>> List(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
+        CancellationToken ct = default)
     {
-        var discounts = await db.DiscountCodes.AsNoTracking().OrderBy(d => d.Code).ToListAsync(ct);
-        return Ok(discounts.Select(DiscountResponse.From).ToList());
+        if (page < 1 || pageSize < 1 || pageSize > MaxPageSize)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Title = $"page must be >= 1 and pageSize between 1 and {MaxPageSize}.",
+            });
+        }
+
+        var query = db.DiscountCodes.AsNoTracking().OrderBy(d => d.Code);
+        var totalCount = await query.CountAsync(ct);
+        var discounts = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+
+        return Ok(new PagedResult<DiscountResponse>(
+            discounts.Select(DiscountResponse.From).ToList(), page, pageSize, totalCount));
     }
 
     [HttpGet("{code}")]

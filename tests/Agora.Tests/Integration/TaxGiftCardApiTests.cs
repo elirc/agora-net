@@ -53,7 +53,7 @@ public class TaxGiftCardApiTests(AgoraApiFactory factory) : IClassFixture<AgoraA
     public async Task ReducedRateCategory_UsesZoneOverride()
     {
         var admin = await AdminClient();
-        var categories = await _client.GetFromJsonAsync<List<CategoryResponse>>("/api/categories");
+        var categories = (await _client.GetFromJsonAsync<PagedResult<CategoryResponse>>("/api/categories"))!.Items;
 
         // A GB "reduced" (5%) product.
         var create = await admin.PostAsJsonAsync("/api/products", new CreateProductRequest(
@@ -74,7 +74,7 @@ public class TaxGiftCardApiTests(AgoraApiFactory factory) : IClassFixture<AgoraA
     public async Task UnknownTaxCategory_OnProduct_Returns422()
     {
         var admin = await AdminClient();
-        var categories = await _client.GetFromJsonAsync<List<CategoryResponse>>("/api/categories");
+        var categories = (await _client.GetFromJsonAsync<PagedResult<CategoryResponse>>("/api/categories"))!.Items;
 
         var create = await admin.PostAsJsonAsync("/api/products", new CreateProductRequest(
             categories![0].Id, "Mystery Tax", "mystery-tax", null, null,

@@ -16,7 +16,7 @@ public class CategoriesApiTests(AgoraApiFactory factory) : IClassFixture<AgoraAp
     [Fact]
     public async Task List_ReturnsSeededCategories()
     {
-        var categories = await _client.GetFromJsonAsync<List<CategoryResponse>>("/api/categories");
+        var categories = (await _client.GetFromJsonAsync<PagedResult<CategoryResponse>>("/api/categories"))!.Items;
 
         Assert.NotNull(categories);
         Assert.Contains(categories, c => c.Slug == "apparel");
@@ -114,7 +114,7 @@ public class CategoriesApiTests(AgoraApiFactory factory) : IClassFixture<AgoraAp
     [Fact]
     public async Task Delete_CategoryWithProducts_Returns409()
     {
-        var categories = await _client.GetFromJsonAsync<List<CategoryResponse>>("/api/categories");
+        var categories = (await _client.GetFromJsonAsync<PagedResult<CategoryResponse>>("/api/categories"))!.Items;
         var apparel = categories!.Single(c => c.Slug == "apparel");
 
         var response = await _client.DeleteAsync($"/api/categories/{apparel.Id}");
