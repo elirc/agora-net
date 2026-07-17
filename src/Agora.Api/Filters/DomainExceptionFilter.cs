@@ -15,6 +15,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             InsufficientStockException => (StatusCodes.Status409Conflict, "Insufficient stock"),
             InvalidOrderStateException => (StatusCodes.Status409Conflict, "Invalid order state"),
             InvalidDiscountException => (StatusCodes.Status422UnprocessableEntity, "Invalid discount"),
+            InvalidShippingMethodException => (StatusCodes.Status422UnprocessableEntity, "Invalid shipping method"),
             PaymentFailedException => (StatusCodes.Status402PaymentRequired, "Payment failed"),
             DomainException => (StatusCodes.Status400BadRequest, "Domain rule violation"),
             _ => (0, string.Empty),

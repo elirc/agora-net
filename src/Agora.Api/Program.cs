@@ -47,7 +47,6 @@ builder.Services.AddAuthorization();
 builder.Services.Configure<CheckoutOptions>(
     builder.Configuration.GetSection(CheckoutOptions.SectionName));
 builder.Services.AddSingleton<ITaxCalculator, FlatRateTaxCalculator>();
-builder.Services.AddSingleton<IShippingCalculator, FlatRateShippingCalculator>();
 builder.Services.AddSingleton<IPaymentGateway, FakePaymentGateway>();
 builder.Services.AddScoped<CheckoutService>();
 builder.Services.AddScoped<OrderService>();

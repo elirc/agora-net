@@ -36,6 +36,11 @@ public class Order
     public string? DiscountCode { get; set; }
     public string? PaymentTransactionId { get; private set; }
 
+    public string? ShippingMethodCode { get; set; }
+    public string? ShippingMethodName { get; set; }
+    public DateTimeOffset? EstimatedDeliveryFrom { get; set; }
+    public DateTimeOffset? EstimatedDeliveryTo { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? PaidAt { get; private set; }
     public DateTimeOffset? FulfilledAt { get; private set; }

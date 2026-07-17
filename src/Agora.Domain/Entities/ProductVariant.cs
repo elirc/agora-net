@@ -14,6 +14,9 @@ public class ProductVariant
 
     public Money Price { get; set; } = Money.Zero();
 
+    /// <summary>Unit shipping weight in grams; used by weight-based shipping rates.</summary>
+    public int WeightGrams { get; set; }
+
     /// <summary>Option name -> value, e.g. { "Color": "Red", "Size": "M" }. Stored as JSON.</summary>
     public Dictionary<string, string> Options { get; set; } = [];
 
