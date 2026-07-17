@@ -3,7 +3,8 @@ using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers();
+builder.Services.AddControllers(options =>
+    options.Filters.Add<Agora.Api.Filters.DomainExceptionFilter>());
 
 builder.Services.AddDbContext<AgoraDbContext>(options =>
     options.UseSqlite(
