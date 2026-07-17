@@ -8,4 +8,7 @@ public class CartItem
     public Guid ProductVariantId { get; set; }
     public ProductVariant? ProductVariant { get; set; }
     public int Quantity { get; set; }
+
+    /// <summary>Saved-for-later lines stay in the cart but are excluded from totals and checkout.</summary>
+    public bool IsSavedForLater { get; set; }
 }
