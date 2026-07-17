@@ -194,7 +194,11 @@ public class CheckoutService(
         }
         else
         {
-            transactionId = $"gift_{giftCard!.Code}";
+            // Nothing to charge: either a gift card covers the whole total, or
+            // discounts (with free/zero-rate shipping and tax) reduced it to zero.
+            transactionId = giftCard is not null
+                ? $"gift_{giftCard.Code}"
+                : $"free_{order.Number}";
         }
 
         if (giftCardApplied > 0)

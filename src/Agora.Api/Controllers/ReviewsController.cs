@@ -68,7 +68,9 @@ public class ReviewsController(AgoraDbContext db) : ControllerBase
 
         var hasPurchased = await db.Orders.AnyAsync(o =>
             o.CustomerId == customerId
-            && (o.Status == OrderStatus.Paid || o.Status == OrderStatus.Fulfilled)
+            && (o.Status == OrderStatus.Paid
+                || o.Status == OrderStatus.PartiallyFulfilled
+                || o.Status == OrderStatus.Fulfilled)
             && o.Items.Any(i => db.ProductVariants.Any(v =>
                 v.Id == i.ProductVariantId && v.ProductId == productId)), ct);
         if (!hasPurchased)
