@@ -19,6 +19,8 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
     public DbSet<DiscountCode> DiscountCodes => Set<DiscountCode>();
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
+    public DbSet<CustomerAddress> CustomerAddresses => Set<CustomerAddress>();
+    public DbSet<ShippingMethod> ShippingMethods => Set<ShippingMethod>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -137,6 +139,8 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
             order.Property(o => o.Email).HasMaxLength(320).IsRequired();
             order.Property(o => o.Currency).HasMaxLength(3);
             order.Property(o => o.DiscountCode).HasMaxLength(64);
+            order.Property(o => o.ShippingMethodCode).HasMaxLength(64);
+            order.Property(o => o.ShippingMethodName).HasMaxLength(200);
             order.HasIndex(o => o.Number).IsUnique();
             order.HasIndex(o => o.CustomerId);
             order.HasOne<Customer>()
@@ -148,6 +152,24 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
                 .WithOne(i => i.Order)
                 .HasForeignKey(i => i.OrderId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<CustomerAddress>(address =>
+        {
+            address.Property(a => a.Label).HasMaxLength(100);
+            address.HasIndex(a => a.CustomerId);
+            address.OwnsOne(a => a.Address);
+            address.HasOne<Customer>()
+                .WithMany()
+                .HasForeignKey(a => a.CustomerId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ShippingMethod>(method =>
+        {
+            method.Property(m => m.Code).HasMaxLength(64).IsRequired();
+            method.HasIndex(m => m.Code).IsUnique();
+            method.Property(m => m.Name).HasMaxLength(200).IsRequired();
         });
 
         modelBuilder.Entity<OrderItem>(item =>

@@ -20,10 +20,12 @@ public class CheckoutController(CheckoutService checkoutService) : ControllerBas
             new CheckoutInput(
                 request.CartToken,
                 request.Email,
-                request.ShippingAddress.ToAddress(),
+                request.ShippingAddress?.ToAddress(),
                 request.DiscountCode,
                 request.PaymentToken,
-                User.GetCustomerId()),
+                User.GetCustomerId(),
+                request.ShippingMethodCode,
+                request.ShippingAddressId),
             ct);
 
         return CreatedAtRoute("GetOrderByNumber", new { number = order.Number }, OrderResponse.From(order));

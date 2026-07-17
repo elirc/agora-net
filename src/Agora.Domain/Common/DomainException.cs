@@ -15,5 +15,8 @@ public sealed class InvalidOrderStateException(string message) : DomainException
 /// <summary>Thrown when a discount code cannot be applied.</summary>
 public sealed class InvalidDiscountException(string message) : DomainException(message);
 
+/// <summary>Thrown when a shipping method cannot be used at checkout.</summary>
+public sealed class InvalidShippingMethodException(string message) : DomainException(message);
+
 /// <summary>Thrown when the payment gateway declines a charge. Maps to HTTP 402.</summary>
 public sealed class PaymentFailedException(string message) : DomainException(message);

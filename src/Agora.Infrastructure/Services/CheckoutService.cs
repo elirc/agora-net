@@ -9,20 +9,23 @@ namespace Agora.Infrastructure.Services;
 public sealed record CheckoutInput(
     string CartToken,
     string Email,
-    Address ShippingAddress,
+    Address? ShippingAddress,
     string? DiscountCode,
     string PaymentToken,
-    Guid? CustomerId = null);
+    Guid? CustomerId = null,
+    string? ShippingMethodCode = null,
+    Guid? ShippingAddressId = null);
 
 /// <summary>
 /// Turns a cart into a paid order:
 /// validate -> reserve stock -> persist pending order -> charge gateway ->
 /// commit reservations + mark paid (or release reservations on decline).
+/// Shipping is priced by the selected <see cref="ShippingMethod"/> (or the
+/// configured default) and the address may come from the customer's address book.
 /// </summary>
 public class CheckoutService(
     AgoraDbContext db,
     ITaxCalculator taxCalculator,
-    IShippingCalculator shippingCalculator,
     IPaymentGateway paymentGateway)
 {
     public async Task<Order> CheckoutAsync(CheckoutInput input, CancellationToken ct = default)
@@ -59,6 +62,11 @@ public class CheckoutService(
             Money.Zero(currency),
             (acc, item) => acc.Add(item.ProductVariant!.Price.Multiply(item.Quantity)));
 
+        // Resolve address and shipping method before touching stock so failures
+        // are side-effect free.
+        var shippingAddress = await ResolveShippingAddressAsync(input, ct);
+        var shippingMethod = await ResolveShippingMethodAsync(input.ShippingMethodCode, ct);
+
         // Validate the discount before touching stock so failures are side-effect free.
         DiscountCode? discount = null;
         if (!string.IsNullOrWhiteSpace(input.DiscountCode))
@@ -84,8 +92,8 @@ public class CheckoutService(
         var discountAmount = discount?.CalculateDiscount(subtotal) ?? Money.Zero(currency);
         var discountedSubtotal = subtotal.Subtract(discountAmount);
         var taxAmount = taxCalculator.CalculateTax(discountedSubtotal);
-        var shippingAmount = shippingCalculator.CalculateShipping(
-            discountedSubtotal, cart.Items.Sum(i => i.Quantity));
+        var totalWeightGrams = cart.Items.Sum(i => i.ProductVariant!.WeightGrams * i.Quantity);
+        var shippingAmount = shippingMethod.CalculateCharge(discountedSubtotal, totalWeightGrams);
         var total = discountedSubtotal.Add(taxAmount).Add(shippingAmount);
 
         var order = new Order
@@ -93,7 +101,11 @@ public class CheckoutService(
             Number = GenerateOrderNumber(now),
             Email = input.Email.Trim(),
             CustomerId = input.CustomerId ?? cart.CustomerId,
-            ShippingAddress = input.ShippingAddress,
+            ShippingAddress = shippingAddress,
+            ShippingMethodCode = shippingMethod.Code,
+            ShippingMethodName = shippingMethod.Name,
+            EstimatedDeliveryFrom = now.AddDays(shippingMethod.MinDays),
+            EstimatedDeliveryTo = now.AddDays(shippingMethod.MaxDays),
             Currency = currency,
             Subtotal = subtotal.Amount,
             DiscountAmount = discountAmount.Amount,
@@ -147,6 +159,66 @@ public class CheckoutService(
         await db.SaveChangesAsync(ct);
 
         return order;
+    }
+
+    /// <summary>
+    /// Uses the inline address, or copies one from the signed-in customer's
+    /// address book when <see cref="CheckoutInput.ShippingAddressId"/> is given.
+    /// </summary>
+    private async Task<Address> ResolveShippingAddressAsync(CheckoutInput input, CancellationToken ct)
+    {
+        if (input.ShippingAddressId is not { } addressId)
+        {
+            return input.ShippingAddress
+                ?? throw new DomainException("A shipping address is required.");
+        }
+
+        if (input.CustomerId is not { } customerId)
+        {
+            throw new DomainException("Sign in to use a saved address.");
+        }
+
+        var saved = await db.CustomerAddresses
+            .AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Id == addressId && a.CustomerId == customerId, ct)
+            ?? throw new NotFoundException($"Saved address '{addressId}' not found.");
+
+        // Copy: the order owns its own address snapshot.
+        return new Address
+        {
+            FullName = saved.Address.FullName,
+            Line1 = saved.Address.Line1,
+            Line2 = saved.Address.Line2,
+            City = saved.Address.City,
+            Region = saved.Address.Region,
+            PostalCode = saved.Address.PostalCode,
+            Country = saved.Address.Country,
+        };
+    }
+
+    /// <summary>Resolves the requested shipping method, or the active default when omitted.</summary>
+    private async Task<ShippingMethod> ResolveShippingMethodAsync(string? code, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            return await db.ShippingMethods
+                .AsNoTracking()
+                .FirstOrDefaultAsync(m => m.IsDefault && m.IsActive, ct)
+                ?? throw new InvalidShippingMethodException("No default shipping method is configured.");
+        }
+
+        var normalized = code.Trim().ToLowerInvariant();
+        var method = await db.ShippingMethods
+            .AsNoTracking()
+            .FirstOrDefaultAsync(m => m.Code == normalized, ct)
+            ?? throw new InvalidShippingMethodException($"Shipping method '{normalized}' does not exist.");
+
+        if (!method.IsActive)
+        {
+            throw new InvalidShippingMethodException($"Shipping method '{normalized}' is not available.");
+        }
+
+        return method;
     }
 
     private static string GenerateOrderNumber(DateTimeOffset now) =>

@@ -36,9 +36,11 @@ public sealed record AddressDto(
 public sealed record CheckoutRequest(
     [Required] string CartToken,
     [Required, EmailAddress, MaxLength(320)] string Email,
-    [Required] AddressDto ShippingAddress,
+    AddressDto? ShippingAddress,
     [MaxLength(64)] string? DiscountCode,
-    [Required, MaxLength(128)] string PaymentToken);
+    [Required, MaxLength(128)] string PaymentToken,
+    [MaxLength(64)] string? ShippingMethodCode = null,
+    Guid? ShippingAddressId = null);
 
 public sealed record OrderItemResponse(
     Guid ProductVariantId,
@@ -72,6 +74,10 @@ public sealed record OrderResponse(
     decimal Total,
     string? DiscountCode,
     string? PaymentTransactionId,
+    string? ShippingMethodCode,
+    string? ShippingMethodName,
+    DateTimeOffset? EstimatedDeliveryFrom,
+    DateTimeOffset? EstimatedDeliveryTo,
     DateTimeOffset CreatedAt,
     DateTimeOffset? PaidAt,
     DateTimeOffset? FulfilledAt,
@@ -92,6 +98,10 @@ public sealed record OrderResponse(
         order.Total,
         order.DiscountCode,
         order.PaymentTransactionId,
+        order.ShippingMethodCode,
+        order.ShippingMethodName,
+        order.EstimatedDeliveryFrom,
+        order.EstimatedDeliveryTo,
         order.CreatedAt,
         order.PaidAt,
         order.FulfilledAt,
