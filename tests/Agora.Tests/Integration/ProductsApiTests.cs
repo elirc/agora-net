@@ -4,9 +4,14 @@ using Agora.Api.Contracts;
 
 namespace Agora.Tests.Integration;
 
-public class ProductsApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiFactory>
+public class ProductsApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiFactory>, IAsyncLifetime
 {
     private readonly HttpClient _client = factory.CreateClient();
+
+    // Admin-only mutations are exercised throughout; authenticate up front.
+    public Task InitializeAsync() => _client.AuthenticateAsAdminAsync();
+
+    public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
     public async Task List_ReturnsSeededCatalog()

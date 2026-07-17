@@ -1,3 +1,4 @@
+using Agora.Api.Auth;
 using Agora.Api.Contracts;
 using Agora.Infrastructure.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -21,7 +22,8 @@ public class CheckoutController(CheckoutService checkoutService) : ControllerBas
                 request.Email,
                 request.ShippingAddress.ToAddress(),
                 request.DiscountCode,
-                request.PaymentToken),
+                request.PaymentToken,
+                User.GetCustomerId()),
             ct);
 
         return CreatedAtRoute("GetOrderByNumber", new { number = order.Number }, OrderResponse.From(order));

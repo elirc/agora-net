@@ -1,6 +1,8 @@
+using Agora.Api.Auth;
 using Agora.Api.Contracts;
 using Agora.Domain.Entities;
 using Agora.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -13,11 +15,37 @@ public class CartsController(AgoraDbContext db) : ControllerBase
     [HttpPost]
     public async Task<ActionResult<CartResponse>> Create(CancellationToken ct)
     {
-        var cart = new Cart();
+        // Signed-in shoppers get their cart attached; guests keep the token-only flow.
+        var cart = new Cart { CustomerId = User.GetCustomerId() };
         db.Carts.Add(cart);
         await db.SaveChangesAsync(ct);
 
         return CreatedAtAction(nameof(GetByToken), new { token = cart.Token }, CartResponse.From(cart));
+    }
+
+    /// <summary>Attaches a guest cart to the authenticated customer's account.</summary>
+    [Authorize]
+    [HttpPost("{token}/claim")]
+    public async Task<ActionResult<CartResponse>> Claim(string token, CancellationToken ct)
+    {
+        var cart = await LoadCart(token, tracking: true, ct);
+        if (cart is null)
+        {
+            return NotFound();
+        }
+
+        var customerId = User.GetCustomerId()!.Value;
+        if (cart.CustomerId is { } owner && owner != customerId)
+        {
+            return Conflict(new ProblemDetails
+            {
+                Title = "Cart already belongs to another customer.",
+            });
+        }
+
+        cart.CustomerId = customerId;
+        await db.SaveChangesAsync(ct);
+        return Ok(CartResponse.From(cart));
     }
 
     [HttpGet("{token}")]

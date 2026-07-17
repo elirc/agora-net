@@ -2,6 +2,7 @@ using Agora.Api.Contracts;
 using Agora.Domain.Common;
 using Agora.Domain.Entities;
 using Agora.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -112,6 +113,7 @@ public class ProductsController(AgoraDbContext db) : ControllerBase
         return product is null ? NotFound() : Ok(ProductResponse.From(product));
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpPost]
     public async Task<ActionResult<ProductResponse>> Create(CreateProductRequest request, CancellationToken ct)
     {
@@ -179,6 +181,7 @@ public class ProductsController(AgoraDbContext db) : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = product.Id }, ProductResponse.From(product));
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpPut("{id:guid}")]
     public async Task<ActionResult<ProductResponse>> Update(Guid id, UpdateProductRequest request, CancellationToken ct)
     {
@@ -211,6 +214,7 @@ public class ProductsController(AgoraDbContext db) : ControllerBase
         return Ok(ProductResponse.From(product));
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {

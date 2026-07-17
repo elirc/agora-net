@@ -7,9 +7,14 @@ using Agora.Api.Contracts;
 namespace Agora.Tests.Integration;
 
 /// <summary>Validation and error-shape hardening across the API surface.</summary>
-public class ApiHardeningTests(AgoraApiFactory factory) : IClassFixture<AgoraApiFactory>
+public class ApiHardeningTests(AgoraApiFactory factory) : IClassFixture<AgoraApiFactory>, IAsyncLifetime
 {
     private readonly HttpClient _client = factory.CreateClient();
+
+    // Admin-only mutations are exercised throughout; authenticate up front.
+    public Task InitializeAsync() => _client.AuthenticateAsAdminAsync();
+
+    public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
     public async Task UnknownRoute_Returns404()

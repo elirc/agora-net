@@ -11,7 +11,8 @@ public sealed record CheckoutInput(
     string Email,
     Address ShippingAddress,
     string? DiscountCode,
-    string PaymentToken);
+    string PaymentToken,
+    Guid? CustomerId = null);
 
 /// <summary>
 /// Turns a cart into a paid order:
@@ -91,6 +92,7 @@ public class CheckoutService(
         {
             Number = GenerateOrderNumber(now),
             Email = input.Email.Trim(),
+            CustomerId = input.CustomerId ?? cart.CustomerId,
             ShippingAddress = input.ShippingAddress,
             Currency = currency,
             Subtotal = subtotal.Amount,

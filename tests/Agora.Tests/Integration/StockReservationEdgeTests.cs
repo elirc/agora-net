@@ -9,9 +9,14 @@ namespace Agora.Tests.Integration;
 /// stock changing between carting and checkout, partial multi-line failures,
 /// and two carts competing for the same units.
 /// </summary>
-public class StockReservationEdgeTests(AgoraApiFactory factory) : IClassFixture<AgoraApiFactory>
+public class StockReservationEdgeTests(AgoraApiFactory factory) : IClassFixture<AgoraApiFactory>, IAsyncLifetime
 {
     private readonly HttpClient _client = factory.CreateClient();
+
+    // Admin-only mutations are exercised throughout; authenticate up front.
+    public Task InitializeAsync() => _client.AuthenticateAsAdminAsync();
+
+    public Task DisposeAsync() => Task.CompletedTask;
 
     private static readonly AddressDto Address = new(
         "Edge Case", "9 Boundary Blvd", null, "Testville", "TS", "00000", "US");

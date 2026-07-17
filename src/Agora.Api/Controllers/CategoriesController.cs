@@ -2,6 +2,7 @@ using Agora.Api.Contracts;
 using Agora.Domain.Common;
 using Agora.Domain.Entities;
 using Agora.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -28,6 +29,7 @@ public class CategoriesController(AgoraDbContext db) : ControllerBase
         return category is null ? NotFound() : Ok(CategoryResponse.From(category));
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpPost]
     public async Task<ActionResult<CategoryResponse>> Create(CreateCategoryRequest request, CancellationToken ct)
     {
@@ -59,6 +61,7 @@ public class CategoriesController(AgoraDbContext db) : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = category.Id }, CategoryResponse.From(category));
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpPut("{id:guid}")]
     public async Task<ActionResult<CategoryResponse>> Update(Guid id, UpdateCategoryRequest request, CancellationToken ct)
     {
@@ -87,6 +90,7 @@ public class CategoriesController(AgoraDbContext db) : ControllerBase
         return Ok(CategoryResponse.From(category));
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
