@@ -7,6 +7,7 @@ namespace Agora.Api.Controllers;
 
 [ApiController]
 [Route("api/checkout")]
+[Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("checkout")]
 public class CheckoutController(CheckoutService checkoutService) : ControllerBase
 {
     /// <summary>

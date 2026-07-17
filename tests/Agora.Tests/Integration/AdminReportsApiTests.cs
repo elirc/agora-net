@@ -99,8 +99,8 @@ public class AdminReportsApiTests : IClassFixture<AgoraApiFactory>
         var admin = factory.CreateClient();
         await admin.AuthenticateAsAdminAsync();
 
-        var report = await admin.GetFromJsonAsync<List<LowStockResponse>>(
-            "/api/admin/reports/low-stock?threshold=9");
+        var report = (await admin.GetFromJsonAsync<PagedResult<LowStockResponse>>(
+            "/api/admin/reports/low-stock?threshold=9"))!.Items;
 
         // Seeded: CDL-CDR-L has 0, KB-NIM-RED has 9.
         Assert.Contains(report!, r => r.Sku == "CDL-CDR-L" && r.QuantityAvailable == 0);
@@ -121,8 +121,8 @@ public class AdminReportsApiTests : IClassFixture<AgoraApiFactory>
         // HOOD-GRY-L starts at 18; sell 15, leaving 3 available.
         await PlaceOrder(client, "HOOD-GRY-L", 15);
 
-        var report = await admin.GetFromJsonAsync<List<LowStockResponse>>(
-            "/api/admin/reports/low-stock?threshold=5");
+        var report = (await admin.GetFromJsonAsync<PagedResult<LowStockResponse>>(
+            "/api/admin/reports/low-stock?threshold=5"))!.Items;
 
         Assert.Contains(report!, r => r.Sku == "HOOD-GRY-L" && r.QuantityAvailable == 3);
     }

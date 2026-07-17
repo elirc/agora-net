@@ -16,7 +16,7 @@ public class DiscountsApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApi
     [Fact]
     public async Task List_IncludesSeededCodes()
     {
-        var discounts = await _client.GetFromJsonAsync<List<DiscountResponse>>("/api/discounts");
+        var discounts = (await _client.GetFromJsonAsync<PagedResult<DiscountResponse>>("/api/discounts"))!.Items;
 
         Assert.NotNull(discounts);
         Assert.Contains(discounts, d => d.Code == "WELCOME10" && d.Type == "Percentage");

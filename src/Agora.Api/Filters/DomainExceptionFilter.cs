@@ -11,6 +11,9 @@ public sealed class DomainExceptionFilter : IExceptionFilter
     {
         var (statusCode, title) = context.Exception switch
         {
+            // Optimistic-concurrency clash: a competing write won; retry.
+            Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException =>
+                (StatusCodes.Status409Conflict, "Concurrency conflict"),
             NotFoundException => (StatusCodes.Status404NotFound, "Resource not found"),
             InsufficientStockException => (StatusCodes.Status409Conflict, "Insufficient stock"),
             InvalidOrderStateException => (StatusCodes.Status409Conflict, "Invalid order state"),

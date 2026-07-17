@@ -64,7 +64,7 @@ public class ApiHardeningTests(AgoraApiFactory factory) : IClassFixture<AgoraApi
     [Fact]
     public async Task CreateVariant_BadCurrency_Returns400()
     {
-        var categories = await _client.GetFromJsonAsync<List<CategoryResponse>>("/api/categories");
+        var categories = (await _client.GetFromJsonAsync<PagedResult<CategoryResponse>>("/api/categories"))!.Items;
 
         var response = await _client.PostAsJsonAsync("/api/products", new CreateProductRequest(
             categories![0].Id, "Bad Currency", "bad-currency", null, null,
@@ -76,7 +76,7 @@ public class ApiHardeningTests(AgoraApiFactory factory) : IClassFixture<AgoraApi
     [Fact]
     public async Task CreateVariant_NegativePrice_Returns400()
     {
-        var categories = await _client.GetFromJsonAsync<List<CategoryResponse>>("/api/categories");
+        var categories = (await _client.GetFromJsonAsync<PagedResult<CategoryResponse>>("/api/categories"))!.Items;
 
         var response = await _client.PostAsJsonAsync("/api/products", new CreateProductRequest(
             categories![0].Id, "Negative Price", "negative-price", null, null,

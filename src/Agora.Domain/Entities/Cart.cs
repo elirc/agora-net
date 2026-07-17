@@ -18,6 +18,10 @@ public class Cart
     public Guid? CustomerId { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    /// <summary>Optimistic-concurrency token; bumped by every cart mutation.</summary>
+    public int Version { get; private set; }
+
     public List<CartItem> Items { get; set; } = [];
 
     public CartItem AddItem(Guid productVariantId, int quantity)
@@ -118,5 +122,9 @@ public class Cart
         }
     }
 
-    private void Touch() => UpdatedAt = DateTimeOffset.UtcNow;
+    private void Touch()
+    {
+        UpdatedAt = DateTimeOffset.UtcNow;
+        Version++;
+    }
 }
