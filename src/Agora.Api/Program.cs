@@ -49,6 +49,7 @@ builder.Services.AddScoped<TaxService>();
 builder.Services.AddScoped<CheckoutService>();
 builder.Services.AddScoped<OrderService>();
 builder.Services.AddScoped<ReturnService>();
+builder.Services.AddScoped<FulfillmentService>();
 
 var app = builder.Build();
 

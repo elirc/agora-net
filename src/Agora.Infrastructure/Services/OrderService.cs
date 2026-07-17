@@ -9,14 +9,6 @@ namespace Agora.Infrastructure.Services;
 /// <summary>Order lifecycle operations beyond checkout.</summary>
 public class OrderService(AgoraDbContext db, IPaymentGateway paymentGateway)
 {
-    public async Task<Order> FulfillAsync(string number, CancellationToken ct = default)
-    {
-        var order = await LoadAsync(number, ct);
-        order.MarkFulfilled(DateTimeOffset.UtcNow);
-        await db.SaveChangesAsync(ct);
-        return order;
-    }
-
     /// <summary>Cancels a pending or paid order; paid orders are refunded and restocked.</summary>
     public async Task<Order> CancelAsync(string number, CancellationToken ct = default)
     {
