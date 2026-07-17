@@ -35,9 +35,12 @@ public sealed record ProductResponse(
     bool IsActive,
     DateTimeOffset CreatedAt,
     IReadOnlyList<VariantResponse> Variants,
-    IReadOnlyList<ImageResponse> Images)
+    IReadOnlyList<ImageResponse> Images,
+    decimal? AverageRating,
+    int ReviewCount)
 {
-    public static ProductResponse From(Product product) => new(
+    public static ProductResponse From(
+        Product product, decimal? averageRating = null, int reviewCount = 0) => new(
         product.Id,
         product.CategoryId,
         product.Name,
@@ -46,7 +49,9 @@ public sealed record ProductResponse(
         product.IsActive,
         product.CreatedAt,
         product.Variants.Select(VariantResponse.From).ToList(),
-        product.Images.OrderBy(i => i.SortOrder).Select(ImageResponse.From).ToList());
+        product.Images.OrderBy(i => i.SortOrder).Select(ImageResponse.From).ToList(),
+        averageRating,
+        reviewCount);
 }
 
 public sealed record CreateVariantRequest(

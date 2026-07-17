@@ -95,22 +95,28 @@ public class ProductsController(AgoraDbContext db) : ControllerBase
             .Take(pageSize)
             .ToListAsync(ct);
 
+        var ratings = await LoadRatings(products.Select(p => p.Id).ToList(), ct);
+
         return Ok(new PagedResult<ProductResponse>(
-            products.Select(ProductResponse.From).ToList(), page, pageSize, totalCount));
+            products.Select(p => ToResponse(p, ratings)).ToList(), page, pageSize, totalCount));
     }
 
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<ProductResponse>> GetById(Guid id, CancellationToken ct)
     {
         var product = await LoadProduct(p => p.Id == id, ct);
-        return product is null ? NotFound() : Ok(ProductResponse.From(product));
+        return product is null
+            ? NotFound()
+            : Ok(ToResponse(product, await LoadRatings([product.Id], ct)));
     }
 
     [HttpGet("by-slug/{slug}")]
     public async Task<ActionResult<ProductResponse>> GetBySlug(string slug, CancellationToken ct)
     {
         var product = await LoadProduct(p => p.Slug == slug, ct);
-        return product is null ? NotFound() : Ok(ProductResponse.From(product));
+        return product is null
+            ? NotFound()
+            : Ok(ToResponse(product, await LoadRatings([product.Id], ct)));
     }
 
     [Authorize(Roles = "Admin")]
@@ -228,6 +234,33 @@ public class ProductsController(AgoraDbContext db) : ControllerBase
         await db.SaveChangesAsync(ct);
         return NoContent();
     }
+
+    /// <summary>Approved-review aggregates (average rating, count) for a set of products.</summary>
+    private async Task<Dictionary<Guid, (decimal Average, int Count)>> LoadRatings(
+        List<Guid> productIds, CancellationToken ct)
+    {
+        var rows = await db.Reviews
+            .AsNoTracking()
+            .Where(r => productIds.Contains(r.ProductId) && r.Status == ReviewStatus.Approved)
+            .GroupBy(r => r.ProductId)
+            .Select(g => new
+            {
+                ProductId = g.Key,
+                Average = g.Average(r => (double)r.Rating),
+                Count = g.Count(),
+            })
+            .ToListAsync(ct);
+
+        return rows.ToDictionary(
+            r => r.ProductId,
+            r => (decimal.Round((decimal)r.Average, 2), r.Count));
+    }
+
+    private static ProductResponse ToResponse(
+        Product product, Dictionary<Guid, (decimal Average, int Count)> ratings) =>
+        ratings.TryGetValue(product.Id, out var stats)
+            ? ProductResponse.From(product, stats.Average, stats.Count)
+            : ProductResponse.From(product);
 
     private Task<Product?> LoadProduct(
         System.Linq.Expressions.Expression<Func<Product, bool>> predicate,
