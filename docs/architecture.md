@@ -1,5 +1,10 @@
 # Architecture
 
+For a guided introduction, use the [code tour](learning/02-code-tour.md).
+Product listing now separates HTTP input validation (`ProductSearchRequest`),
+deferred SQL composition (`ProductCatalogQuery`), and controller execution/mapping.
+[ADR-0009](adr/0009-catalog-query-contract.md) explains this choice and its limits.
+
 agora-net is a three-project ASP.NET Core Web API backed by EF Core on SQLite,
 with a fourth project of xUnit tests that boot the whole API in memory.
 

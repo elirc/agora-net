@@ -37,6 +37,8 @@ public sealed record WebhookDeliveryResponse(
     DateTimeOffset? LastAttemptAt,
     DateTimeOffset CreatedAt)
 {
+    public Guid? EventId { get; init; }
+    public int HistoryStartsAtAttempt { get; init; }
     public static WebhookDeliveryResponse From(WebhookDelivery delivery) => new(
         delivery.Id,
         delivery.SubscriptionId,
@@ -47,5 +49,5 @@ public sealed record WebhookDeliveryResponse(
         delivery.AttemptCount,
         delivery.LastResponseStatusCode,
         delivery.LastAttemptAt,
-        delivery.CreatedAt);
+        delivery.CreatedAt) { EventId = delivery.EventId, HistoryStartsAtAttempt = delivery.HistoryStartsAtAttempt };
 }

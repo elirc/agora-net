@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using Agora.Api.Contracts;
 using Agora.Infrastructure.Persistence;
+using Agora.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -112,7 +113,7 @@ public class ConcurrencyEdgeTests(AgoraApiFactory factory) : IClassFixture<Agora
     {
         // Successful deliveries are terminal: manual retry must not fire the
         // same event at the receiver twice.
-        using var localFactory = new AgoraApiFactory();
+        using var localFactory = new WebhookApiFactory();
         var client = localFactory.CreateClient();
         var admin = localFactory.CreateClient();
         await admin.AuthenticateAsAdminAsync();
@@ -127,6 +128,8 @@ public class ConcurrencyEdgeTests(AgoraApiFactory factory) : IClassFixture<Agora
             new CheckoutRequest(await CartWith("CHG-65W", 1, client), "hooked@example.com",
                 Address, null, "tok_visa"));
         checkout.EnsureSuccessStatusCode();
+        using (var workerScope = localFactory.Services.CreateScope())
+            Assert.Equal(1, await workerScope.ServiceProvider.GetRequiredService<WebhookOutboxRunner>().RunOnceAsync());
 
         var deliveries = await admin.GetFromJsonAsync<PagedResult<WebhookDeliveryResponse>>(
             $"/api/webhooks/{subscriptionId}/deliveries");

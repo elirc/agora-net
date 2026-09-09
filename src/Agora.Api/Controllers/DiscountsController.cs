@@ -77,6 +77,7 @@ public class DiscountsController(AgoraDbContext db) : ControllerBase
             Value = request.Value,
             Currency = request.Currency?.ToUpperInvariant() ?? Money.DefaultCurrency,
             ExpiresAt = request.ExpiresAt,
+            StartsAt = request.StartsAt,
             UsageLimit = request.UsageLimit,
             IsActive = request.IsActive ?? true,
         };
@@ -98,6 +99,7 @@ public class DiscountsController(AgoraDbContext db) : ControllerBase
         }
 
         discount.ExpiresAt = request.ExpiresAt;
+        discount.StartsAt = request.StartsAt;
         discount.UsageLimit = request.UsageLimit;
         discount.IsActive = request.IsActive;
         await db.SaveChangesAsync(ct);

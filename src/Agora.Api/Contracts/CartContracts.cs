@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using Agora.Domain.Common;
 using Agora.Domain.Entities;
+using Agora.Domain.Services;
 
 namespace Agora.Api.Contracts;
 
@@ -12,7 +13,11 @@ public sealed record CartItemResponse(
     string VariantName,
     int Quantity,
     MoneyDto UnitPrice,
-    MoneyDto LineTotal);
+    MoneyDto LineTotal)
+{
+    public MoneyDto BaseUnitPrice { get; init; } = UnitPrice;
+    public int? SelectedMinimumQuantity { get; init; }
+}
 
 public sealed record CartResponse(
     string Token,
@@ -21,24 +26,29 @@ public sealed record CartResponse(
     IReadOnlyList<CartItemResponse> Items,
     IReadOnlyList<CartItemResponse> SavedItems,
     int TotalQuantity,
-    MoneyDto Subtotal)
+    MoneyDto Subtotal,
+    int Version = 0)
 {
+    public int ActiveLineCount => Items.Count;
+    public int SavedLineCount => SavedItems.Count;
+
     /// <summary>
     /// Maps a cart whose items have their variants (and products) loaded.
     /// Saved-for-later lines are listed separately and excluded from totals.
     /// </summary>
-    public static CartResponse From(Cart cart)
+    public static CartResponse From(Cart cart, IReadOnlyDictionary<Guid, CalculatedVariantPrice>? prices = null)
     {
         var items = new List<CartItemResponse>(cart.Items.Count);
         var savedItems = new List<CartItemResponse>();
         var subtotal = Money.Zero(
-            cart.Items.FirstOrDefault()?.ProductVariant?.Price.Currency ?? Money.DefaultCurrency);
+            cart.ActiveItems.FirstOrDefault()?.ProductVariant?.Price.Currency ?? Money.DefaultCurrency);
 
         foreach (var item in cart.Items)
         {
             var variant = item.ProductVariant
                 ?? throw new InvalidOperationException("Cart item variant not loaded.");
-            var lineTotal = variant.Price.Multiply(item.Quantity);
+            var selected = prices is null ? new CalculatedVariantPrice(variant.Price, variant.Price, null) : prices[item.Id];
+            var lineTotal = selected.AppliedPrice.Multiply(item.Quantity);
             var response = new CartItemResponse(
                 item.Id,
                 item.ProductVariantId,
@@ -46,8 +56,12 @@ public sealed record CartResponse(
                 variant.Product?.Name ?? string.Empty,
                 variant.Name,
                 item.Quantity,
-                new MoneyDto(variant.Price.Amount, variant.Price.Currency),
-                new MoneyDto(lineTotal.Amount, lineTotal.Currency));
+                new MoneyDto(selected.AppliedPrice.Amount, selected.AppliedPrice.Currency),
+                new MoneyDto(lineTotal.Amount, lineTotal.Currency))
+                {
+                    BaseUnitPrice = new MoneyDto(selected.BasePrice.Amount, selected.BasePrice.Currency),
+                    SelectedMinimumQuantity = selected.MinimumQuantity,
+                };
 
             if (item.IsSavedForLater)
             {
@@ -67,7 +81,8 @@ public sealed record CartResponse(
             items,
             savedItems,
             items.Sum(i => i.Quantity),
-            new MoneyDto(subtotal.Amount, subtotal.Currency));
+            new MoneyDto(subtotal.Amount, subtotal.Currency),
+            cart.Version);
     }
 }
 

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 using Agora.Domain.Entities;
 
 namespace Agora.Api.Contracts;
@@ -12,7 +13,8 @@ public sealed record DiscountResponse(
     DateTimeOffset? ExpiresAt,
     int? UsageLimit,
     int TimesUsed,
-    bool IsActive)
+    bool IsActive,
+    DateTimeOffset? StartsAt = null)
 {
     public static DiscountResponse From(DiscountCode discount) => new(
         discount.Id,
@@ -23,7 +25,8 @@ public sealed record DiscountResponse(
         discount.ExpiresAt,
         discount.UsageLimit,
         discount.TimesUsed,
-        discount.IsActive);
+        discount.IsActive,
+        discount.StartsAt);
 }
 
 public sealed record CreateDiscountRequest(
@@ -32,11 +35,28 @@ public sealed record CreateDiscountRequest(
     [Range(0.01, 1_000_000)] decimal Value,
     [RegularExpression("^[A-Za-z]{3}$", ErrorMessage = "Currency must be a 3-letter ISO code.")]
     string? Currency,
-    DateTimeOffset? ExpiresAt,
+    [property: JsonConverter(typeof(OffsetTimestampJsonConverter))] DateTimeOffset? ExpiresAt,
     [Range(1, int.MaxValue)] int? UsageLimit,
-    bool? IsActive);
+    bool? IsActive,
+    [property: JsonConverter(typeof(OffsetTimestampJsonConverter))] DateTimeOffset? StartsAt = null) : IValidatableObject
+{
+    public IEnumerable<ValidationResult> Validate(ValidationContext context) => DiscountScheduleValidation.Validate(StartsAt, ExpiresAt);
+}
 
 public sealed record UpdateDiscountRequest(
-    DateTimeOffset? ExpiresAt,
+    [property: JsonConverter(typeof(OffsetTimestampJsonConverter))] DateTimeOffset? ExpiresAt,
     [Range(1, int.MaxValue)] int? UsageLimit,
-    [Required] bool IsActive);
+    [Required] bool IsActive,
+    [property: JsonConverter(typeof(OffsetTimestampJsonConverter))] DateTimeOffset? StartsAt = null) : IValidatableObject
+{
+    public IEnumerable<ValidationResult> Validate(ValidationContext context) => DiscountScheduleValidation.Validate(StartsAt, ExpiresAt);
+}
+
+internal static class DiscountScheduleValidation
+{
+    internal static IEnumerable<ValidationResult> Validate(DateTimeOffset? start, DateTimeOffset? expiry)
+    {
+        if (start is not null && expiry is not null && start >= expiry)
+            yield return new ValidationResult("StartsAt must precede ExpiresAt.", ["StartsAt", "ExpiresAt"]);
+    }
+}

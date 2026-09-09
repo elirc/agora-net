@@ -15,6 +15,7 @@ call, and what it cost — not just what the code does (that is
 | [0006](0006-optimistic-concurrency.md) | Optimistic concurrency on stock, carts and gift cards only | Accepted |
 | [0007](0007-hmac-webhook-signing.md) | Webhooks are HMAC-signed, logged per delivery, retried under a cap | Accepted |
 | [0008](0008-guest-cart-tokens.md) | Guests are first-class: cart tokens and order-email authentication | Accepted |
+| [0009](0009-catalog-query-contract.md) | Explicit catalog query validation and same-variant filtering | Accepted |
 
 ## Format
 

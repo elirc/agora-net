@@ -109,6 +109,47 @@ public class Cart
         Touch();
     }
 
+    public void Claim(Guid customerId, DateTimeOffset now)
+    {
+        if (customerId == Guid.Empty) throw new DomainException("A customer is required to claim a cart.");
+        if (CustomerId is { } owner && owner != customerId) throw new DomainException("Cart belongs to another customer.");
+        if (CustomerId == customerId) return;
+        MembershipChanged(now);
+        CustomerId = customerId;
+    }
+
+    /// <summary>Advances the parent when a related catalog deletion removes child lines by cascade.</summary>
+    public void MembershipChanged(DateTimeOffset now)
+    {
+        if (Version == int.MaxValue) throw new DomainException("The cart revision cannot advance further.");
+        UpdatedAt = now;
+        Version++;
+    }
+
+    /// <summary>Replaces a fully validated combination, preserving IDs for variants already in this cart.</summary>
+    public void ReplaceContents(IReadOnlyList<CartLineState> proposed, DateTimeOffset now)
+    {
+        if (proposed.Any(l => l.VariantId == Guid.Empty) || proposed.Select(l => l.VariantId).Distinct().Count() != proposed.Count)
+            throw new DomainException("Cart contents must use distinct nonempty variant IDs.");
+        foreach (var line in proposed) ValidateQuantity(line.Quantity);
+        if (Version == int.MaxValue) throw new DomainException("The cart revision cannot advance further.");
+        var wanted = proposed.Select(l => l.VariantId).ToHashSet();
+        var existing = Items.ToDictionary(i => i.ProductVariantId);
+        Items.RemoveAll(i => !wanted.Contains(i.ProductVariantId));
+        foreach (var line in proposed)
+        {
+            if (!existing.TryGetValue(line.VariantId, out var item))
+            {
+                item = new CartItem { CartId = Id, ProductVariantId = line.VariantId };
+                Items.Add(item);
+            }
+            item.Quantity = line.Quantity;
+            item.IsSavedForLater = line.IsSavedForLater;
+        }
+        UpdatedAt = now;
+        Version++;
+    }
+
     private CartItem FindItem(Guid cartItemId) =>
         Items.FirstOrDefault(i => i.Id == cartItemId)
         ?? throw new NotFoundException($"Cart item '{cartItemId}' not found.");
@@ -128,3 +169,5 @@ public class Cart
         Version++;
     }
 }
+
+public sealed record CartLineState(Guid VariantId, int Quantity, bool IsSavedForLater);

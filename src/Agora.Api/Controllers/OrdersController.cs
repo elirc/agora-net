@@ -1,3 +1,4 @@
+using Agora.Api.Auth;
 using Agora.Api.Contracts;
 using Agora.Infrastructure.Persistence;
 using Agora.Infrastructure.Services;
@@ -12,21 +13,30 @@ namespace Agora.Api.Controllers;
 public class OrdersController(
     AgoraDbContext db,
     OrderService orderService,
-    FulfillmentService fulfillmentService) : ControllerBase
+    FulfillmentService fulfillmentService,
+    GuestOrderAccessService orderAccess) : ControllerBase
 {
     [HttpGet("{number}", Name = "GetOrderByNumber")]
-    public async Task<ActionResult<OrderResponse>> GetByNumber(string number, CancellationToken ct)
+    public async Task<ActionResult<CustomerOrderResponse>> GetByNumber(string number, CancellationToken ct)
     {
         var order = await orderService.FindAsync(number, ct);
-        return order is null ? NotFound() : Ok(OrderResponse.From(order));
+        if (order is null) return NotFound();
+        await orderAccess.EnsureCanReadAsync(order, Actor(), ct);
+        Response.Headers.CacheControl = "private, no-store";
+        return Ok(CustomerOrderResponse.From(order));
     }
 
     /// <summary>Ships everything still outstanding as one fulfillment.</summary>
     [Authorize(Roles = "Admin")]
     [HttpPost("{number}/fulfill")]
-    public async Task<ActionResult<OrderResponse>> Fulfill(string number, CancellationToken ct)
+    public async Task<ActionResult<OrderResponse>> Fulfill(
+        string number,
+        [FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)]
+        LegacyFulfillRequest? request,
+        CancellationToken ct)
     {
-        await fulfillmentService.CreateAsync(number, carrier: null, trackingNumber: null, lines: null, ct);
+        await fulfillmentService.CreateAsync(number, carrier: null, trackingNumber: null,
+            lines: null, ct, request?.AssignmentId, User.GetCustomerId()!.Value);
         var order = await orderService.FindAsync(number, ct);
         return Ok(OrderResponse.From(order!));
     }
@@ -42,7 +52,9 @@ public class OrdersController(
             request.Carrier,
             request.TrackingNumber,
             request.Items?.Select(i => new FulfillmentLineInput(i.OrderItemId, i.Quantity)).ToList(),
-            ct);
+            ct,
+            request.AssignmentId,
+            User.GetCustomerId()!.Value);
 
         return CreatedAtAction(nameof(ListFulfillments), new { number },
             FulfillmentResponse.From(fulfillment));
@@ -59,6 +71,7 @@ public class OrdersController(
         {
             return NotFound();
         }
+        await orderAccess.EnsureCanReadAsync(order, Actor(), ct);
 
         var fulfillments = await db.Fulfillments
             .AsNoTracking()
@@ -67,16 +80,29 @@ public class OrdersController(
             .OrderBy(f => f.CreatedAt)
             .ToListAsync(ct);
 
+        Response.Headers.CacheControl = "private, no-store";
         return Ok(fulfillments.Select(FulfillmentResponse.From).ToList());
     }
 
     /// <summary>Cancels a pending/paid order; paid orders are refunded and restocked.</summary>
     [HttpPost("{number}/cancel")]
-    public async Task<ActionResult<OrderResponse>> Cancel(string number, CancellationToken ct) =>
-        Ok(OrderResponse.From(await orderService.CancelAsync(number, ct)));
+    [Authorize]
+    public async Task<ActionResult<CustomerOrderResponse>> Cancel(string number, CancellationToken ct)
+    {
+        var order = await orderService.FindAsync(number, ct);
+        if (order is null) return NotFound();
+        await orderAccess.EnsureCanReadAsync(order, new OrderAccessActor(User.GetCustomerId(), User.IsInRole("Admin"), null), ct);
+        var cancelled = await orderService.CancelAsync(number, ct);
+        Response.Headers.CacheControl = "private, no-store";
+        return Ok(CustomerOrderResponse.From(cancelled));
+    }
 
     /// <summary>Refunds a paid/fulfilled order and restocks its items.</summary>
     [HttpPost("{number}/refund")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<OrderResponse>> Refund(string number, CancellationToken ct) =>
         Ok(OrderResponse.From(await orderService.RefundAsync(number, ct)));
+
+    private OrderAccessActor Actor() => new(User.GetCustomerId(), User.IsInRole("Admin"),
+        Request.Headers["X-Agora-Order-Access"].FirstOrDefault());
 }

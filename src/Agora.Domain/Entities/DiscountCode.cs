@@ -19,12 +19,14 @@ public class DiscountCode
 
     public string Currency { get; set; } = Money.DefaultCurrency;
     public DateTimeOffset? ExpiresAt { get; set; }
+    public DateTimeOffset? StartsAt { get; set; }
     public int? UsageLimit { get; set; }
     public int TimesUsed { get; set; }
     public bool IsActive { get; set; } = true;
 
     public bool IsRedeemable(DateTimeOffset now) =>
         IsActive
+        && (StartsAt is null || now >= StartsAt)
         && (ExpiresAt is null || ExpiresAt > now)
         && (UsageLimit is null || TimesUsed < UsageLimit);
 

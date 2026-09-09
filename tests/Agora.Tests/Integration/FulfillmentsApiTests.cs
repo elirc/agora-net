@@ -112,7 +112,7 @@ public class FulfillmentsApiTests(AgoraApiFactory factory) : IClassFixture<Agora
     public async Task FulfillingACancelledOrder_Returns409()
     {
         var order = await PlaceOrder("TEE-WHT-M", 1);
-        (await _client.PostAsync($"/api/orders/{order.Number}/cancel", null))
+        (await (await AdminClient()).PostAsync($"/api/orders/{order.Number}/cancel", null))
             .EnsureSuccessStatusCode();
         var admin = await AdminClient();
 
@@ -130,7 +130,7 @@ public class FulfillmentsApiTests(AgoraApiFactory factory) : IClassFixture<Agora
         var admin = await AdminClient();
         await Ship(admin, order.Number, line.Id, 1);
 
-        var response = await _client.PostAsync($"/api/orders/{order.Number}/cancel", null);
+        var response = await (await AdminClient()).PostAsync($"/api/orders/{order.Number}/cancel", null);
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
@@ -144,7 +144,7 @@ public class FulfillmentsApiTests(AgoraApiFactory factory) : IClassFixture<Agora
         var admin = await AdminClient();
         await Ship(admin, order.Number, line.Id, 1);
 
-        var response = await _client.PostAsync($"/api/orders/{order.Number}/refund", null);
+        var response = await admin.PostAsync($"/api/orders/{order.Number}/refund", null);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var refunded = await response.Content.ReadFromJsonAsync<OrderResponse>();
@@ -176,17 +176,18 @@ public class FulfillmentsApiTests(AgoraApiFactory factory) : IClassFixture<Agora
         var customer = _factory.CreateClient();
         customer.UseBearer(await TestAuth.RegisterAsync(customer, "shipper-nope@example.com"));
 
-        var anonymous = await _client.PostAsJsonAsync($"/api/orders/{order.Number}/fulfillments",
+        using var visitor = _factory.CreateClient();
+        var anonymous = await visitor.PostAsJsonAsync($"/api/orders/{order.Number}/fulfillments",
             new CreateFulfillmentRequest(null, null, null));
         var forbidden = await customer.PostAsJsonAsync($"/api/orders/{order.Number}/fulfillments",
             new CreateFulfillmentRequest(null, null, null));
-        var legacyAnonymous = await _client.PostAsync($"/api/orders/{order.Number}/fulfill", null);
+        var legacyAnonymous = await visitor.PostAsync($"/api/orders/{order.Number}/fulfill", null);
 
         Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, legacyAnonymous.StatusCode);
 
-        // Reading shipments stays public (order number is the capability).
+        // The checkout credential authorizes the guest to read shipments.
         var list = await _client.GetAsync($"/api/orders/{order.Number}/fulfillments");
         Assert.Equal(HttpStatusCode.OK, list.StatusCode);
     }
@@ -219,6 +220,10 @@ public class FulfillmentsApiTests(AgoraApiFactory factory) : IClassFixture<Agora
         var checkout = await _client.PostAsJsonAsync("/api/checkout",
             new CheckoutRequest(token, "shipper@example.com", Address, null, "tok_visa"));
         checkout.EnsureSuccessStatusCode();
-        return (await checkout.Content.ReadFromJsonAsync<OrderResponse>())!;
+        var receipt = (await checkout.Content.ReadFromJsonAsync<CheckoutResponse>())!;
+        _client.DefaultRequestHeaders.Remove("X-Agora-Order-Access");
+        _client.DefaultRequestHeaders.Add("X-Agora-Order-Access", receipt.GuestOrderAccessToken!);
+        return System.Text.Json.JsonSerializer.Deserialize<OrderResponse>(
+            System.Text.Json.JsonSerializer.Serialize(receipt))!;
     }
 }

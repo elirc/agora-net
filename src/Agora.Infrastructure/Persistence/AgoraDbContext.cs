@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Agora.Domain.Entities;
+using Agora.Infrastructure.Persistence.Configurations;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
@@ -10,12 +11,38 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
 {
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<Category> Categories => Set<Category>();
+    public DbSet<OrderHold> OrderHolds => Set<OrderHold>();
+    public DbSet<WarehouseAssignment> WarehouseAssignments => Set<WarehouseAssignment>();
+    public DbSet<Supplier> Suppliers => Set<Supplier>();
+    public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();
+    public DbSet<PurchaseOrderLine> PurchaseOrderLines => Set<PurchaseOrderLine>();
+    public DbSet<PurchaseOrderReceipt> PurchaseOrderReceipts => Set<PurchaseOrderReceipt>();
+    public DbSet<PurchaseOrderReceiptLine> PurchaseOrderReceiptLines => Set<PurchaseOrderReceiptLine>();
+    public DbSet<InventoryCountSession> InventoryCountSessions => Set<InventoryCountSession>();
+    public DbSet<InventoryCountLine> InventoryCountLines => Set<InventoryCountLine>();
+    public DbSet<CategoryTreeState> CategoryTreeStates => Set<CategoryTreeState>();
+    public DbSet<CategoryOptionSchema> CategoryOptionSchemas => Set<CategoryOptionSchema>();
     public DbSet<Product> Products => Set<Product>();
+    public DbSet<CatalogChange> CatalogChanges => Set<CatalogChange>();
+    public DbSet<CatalogFeedState> CatalogFeedStates => Set<CatalogFeedState>();
     public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
     public DbSet<ProductImage> ProductImages => Set<ProductImage>();
+    public DbSet<Tag> Tags => Set<Tag>();
+    public DbSet<ProductTag> ProductTags => Set<ProductTag>();
+    public DbSet<ProductCollection> ProductCollections => Set<ProductCollection>();
+    public DbSet<CollectionItem> CollectionItems => Set<CollectionItem>();
     public DbSet<InventoryItem> InventoryItems => Set<InventoryItem>();
+    public DbSet<InventoryReorderPolicy> InventoryReorderPolicies => Set<InventoryReorderPolicy>();
+    public DbSet<InventoryAdjustmentBatch> InventoryAdjustmentBatches => Set<InventoryAdjustmentBatch>();
+    public DbSet<InventoryAdjustmentLine> InventoryAdjustmentLines => Set<InventoryAdjustmentLine>();
+    public DbSet<SavedCatalogSearch> SavedCatalogSearches => Set<SavedCatalogSearch>();
+    public DbSet<RecentlyViewedProduct> RecentlyViewedProducts => Set<RecentlyViewedProduct>();
+    public DbSet<ReviewReport> ReviewReports => Set<ReviewReport>();
     public DbSet<Cart> Carts => Set<Cart>();
     public DbSet<CartItem> CartItems => Set<CartItem>();
+    public DbSet<CartTemplate> CartTemplates => Set<CartTemplate>();
+    public DbSet<CartTemplateLine> CartTemplateLines => Set<CartTemplateLine>();
+    public DbSet<CheckoutPreference> CheckoutPreferences => Set<CheckoutPreference>();
     public DbSet<DiscountCode> DiscountCodes => Set<DiscountCode>();
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
@@ -27,12 +54,16 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
     public DbSet<WishlistItem> WishlistItems => Set<WishlistItem>();
     public DbSet<ReturnRequest> ReturnRequests => Set<ReturnRequest>();
     public DbSet<ReturnRequestItem> ReturnRequestItems => Set<ReturnRequestItem>();
+    public DbSet<ReturnEvidence> ReturnEvidence => Set<ReturnEvidence>();
+    public DbSet<OrderSupportNote> OrderSupportNotes => Set<OrderSupportNote>();
+    public DbSet<ShipmentTrackingEvent> ShipmentTrackingEvents => Set<ShipmentTrackingEvent>();
     public DbSet<Fulfillment> Fulfillments => Set<Fulfillment>();
     public DbSet<FulfillmentItem> FulfillmentItems => Set<FulfillmentItem>();
     public DbSet<TaxCategory> TaxCategories => Set<TaxCategory>();
     public DbSet<TaxZone> TaxZones => Set<TaxZone>();
     public DbSet<TaxZoneRate> TaxZoneRates => Set<TaxZoneRate>();
     public DbSet<GiftCard> GiftCards => Set<GiftCard>();
+    public DbSet<GiftCardEntry> GiftCardEntries => Set<GiftCardEntry>();
     public DbSet<WebhookSubscription> WebhookSubscriptions => Set<WebhookSubscription>();
     public DbSet<WebhookDelivery> WebhookDeliveries => Set<WebhookDelivery>();
 
@@ -48,6 +79,143 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.ApplyConfiguration(new CatalogChangeConfiguration());
+        modelBuilder.ApplyConfiguration(new CatalogFeedStateConfiguration());
+        modelBuilder.Entity<Product>().Property(p => p.CatalogRevision).IsConcurrencyToken();
+        modelBuilder.Entity<Order>().HasIndex(o => new { o.CustomerId, o.CreatedAt, o.Number })
+            .IsDescending(false, true, true).HasDatabaseName("IX_Orders_CustomerId_CreatedAt_Number");
+        modelBuilder.ApplyConfiguration(new LoginSessionConfiguration());
+        modelBuilder.ApplyConfiguration(new IntegrationApiKeyConfiguration());
+        modelBuilder.ApplyConfiguration(new ReportExportJobConfiguration());
+        modelBuilder.ApplyConfiguration(new ReportExportArtifactConfiguration());
+        modelBuilder.ApplyConfiguration(new OutboxEventConfiguration());
+        modelBuilder.ApplyConfiguration(new WebhookDeliveryOutboxConfiguration());
+        modelBuilder.ApplyConfiguration(new WebhookAttemptConfiguration());
+        modelBuilder.ApplyConfiguration(new WebhookReplayBatchConfiguration());
+        modelBuilder.ApplyConfiguration(new WebhookReplayResultConfiguration());
+        modelBuilder.ApplyConfiguration(new OrderHoldConfiguration());
+        modelBuilder.ApplyConfiguration(new WarehouseAssignmentConfiguration());
+        modelBuilder.ApplyConfiguration(new GuestOrderCredentialConfiguration());
+        modelBuilder.ApplyConfiguration(new VariantQuantityPricingConfiguration());
+        modelBuilder.ApplyConfiguration(new VariantQuantityTierConfiguration());
+        modelBuilder.ApplyConfiguration(new ShippingEligibilityPolicyConfiguration());
+        modelBuilder.ApplyConfiguration(new DeliveryCalendarConfiguration());
+        modelBuilder.ApplyConfiguration(new DeliveryCalendarClosureConfiguration());
+        modelBuilder.ApplyConfiguration(new SupplierConfiguration());
+        modelBuilder.ApplyConfiguration(new PurchaseOrderConfiguration());
+        modelBuilder.ApplyConfiguration(new PurchaseOrderLineConfiguration());
+        modelBuilder.ApplyConfiguration(new PurchaseOrderReceiptConfiguration());
+        modelBuilder.ApplyConfiguration(new PurchaseOrderReceiptLineConfiguration());
+        modelBuilder.ApplyConfiguration(new InventoryCountSessionConfiguration());
+        modelBuilder.ApplyConfiguration(new InventoryCountLineConfiguration());
+        modelBuilder.ApplyConfiguration(new CatalogImportConfiguration());
+        modelBuilder.ApplyConfiguration(new CatalogImportResultConfiguration());
+        modelBuilder.Entity<CategoryOptionSchema>(schema =>
+        {
+            schema.HasKey(s => s.CategoryId);
+            schema.Property(s => s.Revision).IsConcurrencyToken();
+            schema.Property(s => s.RulesJson).HasMaxLength(262144).IsRequired();
+            schema.HasOne<Category>().WithOne().HasForeignKey<CategoryOptionSchema>(s => s.CategoryId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<CategoryTreeState>(state =>
+        {
+            state.ToTable("CategoryTreeStates", table => table.HasCheckConstraint("CK_CategoryTreeStates_Singleton", "Id = 1"));
+            state.Property(s => s.Id).ValueGeneratedNever();
+            state.Property(s => s.Version).IsConcurrencyToken();
+            state.HasData(new { Id = 1, Version = 0L });
+        });
+        modelBuilder.Entity<GiftCardEntry>(entry =>
+        {
+            entry.Property(e => e.Currency).HasMaxLength(3).IsRequired();
+            entry.HasIndex(e => new { e.GiftCardId, e.RecordedVersion }).IsUnique();
+            entry.HasOne<GiftCard>().WithMany().HasForeignKey(e => e.GiftCardId).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<ReturnEvidence>(evidence =>
+        {
+            evidence.Property(e => e.Url).HasMaxLength(2000).IsRequired();
+            evidence.Property(e => e.Description).HasMaxLength(200);
+            evidence.HasIndex(e => new { e.ReturnRequestId, e.CreatedAt, e.Id });
+            evidence.HasOne<ReturnRequest>().WithMany().HasForeignKey(e => e.ReturnRequestId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<OrderSupportNote>(note =>
+        {
+            note.Property(n => n.Body).HasMaxLength(1000).IsRequired();
+            note.HasIndex(n => new { n.OrderId, n.CreatedAt, n.Id }).IsDescending(false, true, false);
+            note.HasOne<Order>().WithMany().HasForeignKey(n => n.OrderId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<Fulfillment>().Property(f => f.TrackingVersion).IsConcurrencyToken();
+        modelBuilder.Entity<ShipmentTrackingEvent>(tracking =>
+        {
+            tracking.Property(e => e.Message).HasMaxLength(200);
+            tracking.HasIndex(e => new { e.FulfillmentId, e.Sequence }).IsUnique();
+            tracking.HasOne<Fulfillment>().WithMany().HasForeignKey(e => e.FulfillmentId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<CheckoutPreference>(preference =>
+        {
+            preference.HasKey(p => p.CustomerId);
+            preference.Property(p => p.Version).IsConcurrencyToken();
+            preference.Property(p => p.ShippingMethodCode).HasMaxLength(64);
+            preference.HasOne<Customer>().WithOne().HasForeignKey<CheckoutPreference>(p => p.CustomerId).OnDelete(DeleteBehavior.Cascade);
+            preference.HasOne<CustomerAddress>().WithMany().HasForeignKey(p => p.ShippingAddressId).OnDelete(DeleteBehavior.SetNull);
+        });
+        modelBuilder.Entity<CartTemplate>(template =>
+        {
+            template.Property(t => t.Name).HasMaxLength(80).IsRequired();
+            template.HasIndex(t => new { t.CustomerId, t.CreatedAt, t.Id });
+            template.HasOne<Customer>().WithMany().HasForeignKey(t => t.CustomerId).OnDelete(DeleteBehavior.Cascade);
+            template.HasMany(t => t.Lines).WithOne().HasForeignKey(l => l.CartTemplateId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<CartTemplateLine>(line =>
+        {
+            line.HasIndex(l => new { l.CartTemplateId, l.VariantId }).IsUnique();
+            line.Property(l => l.Sku).HasMaxLength(64).IsRequired();
+            line.Property(l => l.ProductName).HasMaxLength(200).IsRequired();
+            line.Property(l => l.VariantName).HasMaxLength(200).IsRequired();
+        });
+        modelBuilder.Entity<ReviewReport>(report =>
+        {
+            report.Property(r => r.Comment).HasMaxLength(500);
+            report.Property(r => r.ResolutionNote).HasMaxLength(500);
+            report.Property(r => r.Version).IsConcurrencyToken();
+            report.HasIndex(r => new { r.CustomerId, r.ReviewId }).IsUnique();
+            report.HasIndex(r => new { r.Status, r.CreatedAt, r.Id });
+            report.HasOne(r => r.Review).WithMany().HasForeignKey(r => r.ReviewId).OnDelete(DeleteBehavior.Cascade);
+            report.HasOne<Customer>().WithMany().HasForeignKey(r => r.CustomerId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<SavedCatalogSearch>(saved =>
+        {
+            saved.Property(s => s.Name).HasMaxLength(80).IsRequired();
+            saved.Property(s => s.DefinitionJson).HasMaxLength(SavedCatalogSearch.MaximumDefinitionLength).IsRequired();
+            saved.HasIndex(s => new { s.CustomerId, s.CreatedAt, s.Id });
+            saved.HasOne<Customer>().WithMany().HasForeignKey(s => s.CustomerId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<RecentlyViewedProduct>(recent =>
+        {
+            recent.HasKey(r => new { r.CustomerId, r.ProductId });
+            recent.HasIndex(r => new { r.CustomerId, r.LastViewedAt, r.ProductId }).IsDescending(false, true, false);
+            recent.HasOne<Customer>().WithMany().HasForeignKey(r => r.CustomerId).OnDelete(DeleteBehavior.Cascade);
+            recent.HasOne(r => r.Product).WithMany().HasForeignKey(r => r.ProductId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<InventoryAdjustmentBatch>(batch =>
+        {
+            batch.Property(b => b.Id).ValueGeneratedNever();
+            batch.Property(b => b.Reason).HasMaxLength(200).IsRequired();
+            batch.Property(b => b.Fingerprint).HasMaxLength(64).IsRequired();
+            batch.HasMany(b => b.Lines).WithOne().HasForeignKey(l => l.BatchId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<InventoryAdjustmentLine>(line =>
+        {
+            line.Property(l => l.Sku).HasMaxLength(64).IsRequired();
+            line.HasIndex(l => new { l.BatchId, l.VariantId }).IsUnique();
+            // No variant/actor foreign key: completed receipts survive catalog/account removal.
+        });
+        modelBuilder.Entity<InventoryReorderPolicy>(policy =>
+        {
+            policy.HasKey(p => p.ProductVariantId);
+            policy.Property(p => p.Version).IsConcurrencyToken();
+            policy.HasOne<ProductVariant>().WithOne().HasForeignKey<InventoryReorderPolicy>(p => p.ProductVariantId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
         modelBuilder.Entity<Customer>(customer =>
         {
             customer.Property(c => c.Email).HasMaxLength(320).IsRequired();
@@ -69,6 +237,8 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
 
         modelBuilder.Entity<Product>(product =>
         {
+            product.Property(p => p.TagVersion).IsConcurrencyToken();
+            product.Property(p => p.ImageRevision).IsConcurrencyToken();
             product.Property(p => p.Name).HasMaxLength(200).IsRequired();
             product.Property(p => p.Slug).HasMaxLength(200).IsRequired();
             product.Property(p => p.Description).HasMaxLength(4000);
@@ -91,8 +261,36 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<Tag>(tag =>
+        {
+            tag.Property(t => t.Name).HasMaxLength(60).IsRequired();
+            tag.Property(t => t.Slug).HasMaxLength(60).IsRequired();
+            tag.HasIndex(t => t.Slug).IsUnique();
+        });
+        modelBuilder.Entity<ProductTag>(tag =>
+        {
+            tag.HasKey(t => new { t.ProductId, t.TagId });
+            tag.HasOne(t => t.Product).WithMany(p => p.Tags).HasForeignKey(t => t.ProductId).OnDelete(DeleteBehavior.Cascade);
+            tag.HasOne(t => t.Tag).WithMany().HasForeignKey(t => t.TagId).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<ProductCollection>(collection =>
+        {
+            collection.Property(c => c.Title).HasMaxLength(120).IsRequired();
+            collection.Property(c => c.Slug).HasMaxLength(60).IsRequired();
+            collection.Property(c => c.Version).IsConcurrencyToken();
+            collection.HasIndex(c => c.Slug).IsUnique();
+            collection.HasMany(c => c.Items).WithOne(i => i.Collection).HasForeignKey(i => i.CollectionId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<CollectionItem>(item =>
+        {
+            item.HasKey(i => new { i.CollectionId, i.ProductId });
+            item.HasOne(i => i.Product).WithMany().HasForeignKey(i => i.ProductId).OnDelete(DeleteBehavior.Cascade);
+            item.HasIndex(i => new { i.CollectionId, i.Position });
+        });
+
         modelBuilder.Entity<ProductVariant>(variant =>
         {
+            variant.Property(v => v.Version).IsConcurrencyToken();
             variant.Property(v => v.Sku).HasMaxLength(64).IsRequired();
             variant.Property(v => v.Name).HasMaxLength(200);
             variant.HasIndex(v => v.Sku).IsUnique();
@@ -311,6 +509,7 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
 
         modelBuilder.Entity<Wishlist>(wishlist =>
         {
+            wishlist.Property(w => w.MembershipVersion).IsConcurrencyToken();
             wishlist.Property(w => w.Name).HasMaxLength(100).IsRequired();
             wishlist.HasIndex(w => new { w.CustomerId, w.Name }).IsUnique();
             wishlist.HasOne<Customer>()
@@ -325,6 +524,8 @@ public class AgoraDbContext(DbContextOptions<AgoraDbContext> options) : DbContex
 
         modelBuilder.Entity<WishlistItem>(item =>
         {
+            item.Property(i => i.Note).HasMaxLength(500);
+            item.Property(i => i.NoteVersion).IsConcurrencyToken();
             item.HasIndex(i => new { i.WishlistId, i.ProductVariantId }).IsUnique();
             item.HasOne(i => i.ProductVariant)
                 .WithMany()

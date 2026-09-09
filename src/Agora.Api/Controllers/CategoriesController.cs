@@ -1,4 +1,6 @@
 using Agora.Api.Contracts;
+using Agora.Api.Queries;
+using System.ComponentModel.DataAnnotations;
 using Agora.Domain.Common;
 using Agora.Domain.Entities;
 using Agora.Infrastructure.Persistence;
@@ -10,7 +12,7 @@ namespace Agora.Api.Controllers;
 
 [ApiController]
 [Route("api/categories")]
-public class CategoriesController(AgoraDbContext db) : ControllerBase
+public class CategoriesController(AgoraDbContext db, Agora.Infrastructure.Services.CategoryTreeService tree) : ControllerBase
 {
     public const int MaxPageSize = 100;
 
@@ -18,9 +20,12 @@ public class CategoriesController(AgoraDbContext db) : ControllerBase
     public async Task<ActionResult<PagedResult<CategoryResponse>>> List(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 50,
+        [FromQuery, MaxLength(200)] string? search = null,
+        [FromQuery] bool? rootOnly = null,
+        [FromQuery] Guid? parentCategoryId = null,
         CancellationToken ct = default)
     {
-        if (page < 1 || pageSize < 1 || pageSize > MaxPageSize)
+        if (!QueryRules.ValidPage(page, pageSize, MaxPageSize))
         {
             return BadRequest(new ProblemDetails
             {
@@ -28,9 +33,20 @@ public class CategoriesController(AgoraDbContext db) : ControllerBase
             });
         }
 
-        var query = db.Categories.AsNoTracking().OrderBy(c => c.Name);
+        if (rootOnly == true && parentCategoryId.HasValue)
+            return BadRequest(new ProblemDetails { Title = "rootOnly and parentCategoryId cannot be combined." });
+
+        var query = db.Categories.AsNoTracking();
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var pattern = QueryRules.LiteralContains(search);
+            query = query.Where(c => EF.Functions.Like(c.Name, pattern, "\\"));
+        }
+        if (rootOnly == true) query = query.Where(c => c.ParentCategoryId == null);
+        if (parentCategoryId is { } parentId) query = query.Where(c => c.ParentCategoryId == parentId);
         var totalCount = await query.CountAsync(ct);
-        var categories = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+        var categories = await query.OrderBy(c => c.Name).ThenBy(c => c.Id)
+            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
 
         return Ok(new PagedResult<CategoryResponse>(
             categories.Select(CategoryResponse.From).ToList(), page, pageSize, totalCount));
@@ -43,89 +59,38 @@ public class CategoriesController(AgoraDbContext db) : ControllerBase
         return category is null ? NotFound() : Ok(CategoryResponse.From(category));
     }
 
+    [HttpGet("by-slug/{slug}")]
+    public async Task<ActionResult<CategoryResponse>> GetBySlug(string slug, CancellationToken ct)
+    {
+        var normalized = slug.Trim();
+        var category = await db.Categories.AsNoTracking().FirstOrDefaultAsync(c => c.Slug == normalized, ct);
+        return category is null ? NotFound() : Ok(CategoryResponse.From(category));
+    }
+
     [Authorize(Roles = "Admin")]
     [HttpPost]
+    [Agora.Api.Filters.LocalSqliteWrite]
     public async Task<ActionResult<CategoryResponse>> Create(CreateCategoryRequest request, CancellationToken ct)
     {
-        var slug = string.IsNullOrWhiteSpace(request.Slug)
-            ? SlugGenerator.FromName(request.Name)
-            : request.Slug.Trim();
-
-        if (await db.Categories.AnyAsync(c => c.Slug == slug, ct))
-        {
-            return Conflict(new ProblemDetails { Title = $"A category with slug '{slug}' already exists." });
-        }
-
-        if (request.ParentCategoryId is { } parentId
-            && !await db.Categories.AnyAsync(c => c.Id == parentId, ct))
-        {
-            return UnprocessableEntity(new ProblemDetails { Title = "Parent category does not exist." });
-        }
-
-        var category = new Category
-        {
-            Name = request.Name.Trim(),
-            Slug = slug,
-            Description = request.Description,
-            ParentCategoryId = request.ParentCategoryId,
-        };
-        db.Categories.Add(category);
-        await db.SaveChangesAsync(ct);
-
+        var category = await tree.CreateAsync(request.Name, request.Slug, request.Description, request.ParentCategoryId, ct);
         return CreatedAtAction(nameof(GetById), new { id = category.Id }, CategoryResponse.From(category));
     }
 
     [Authorize(Roles = "Admin")]
     [HttpPut("{id:guid}")]
+    [Agora.Api.Filters.LocalSqliteWrite]
     public async Task<ActionResult<CategoryResponse>> Update(Guid id, UpdateCategoryRequest request, CancellationToken ct)
     {
-        var category = await db.Categories.FirstOrDefaultAsync(c => c.Id == id, ct);
-        if (category is null)
-        {
-            return NotFound();
-        }
-
-        if (await db.Categories.AnyAsync(c => c.Slug == request.Slug && c.Id != id, ct))
-        {
-            return Conflict(new ProblemDetails { Title = $"A category with slug '{request.Slug}' already exists." });
-        }
-
-        if (request.ParentCategoryId == id)
-        {
-            return UnprocessableEntity(new ProblemDetails { Title = "A category cannot be its own parent." });
-        }
-
-        category.Name = request.Name.Trim();
-        category.Slug = request.Slug.Trim();
-        category.Description = request.Description;
-        category.ParentCategoryId = request.ParentCategoryId;
-        await db.SaveChangesAsync(ct);
-
+        var category = await tree.UpdateAsync(id, request.Name, request.Slug, request.Description, request.ParentCategoryId, ct);
         return Ok(CategoryResponse.From(category));
     }
 
     [Authorize(Roles = "Admin")]
     [HttpDelete("{id:guid}")]
+    [Agora.Api.Filters.LocalSqliteWrite]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
-        var category = await db.Categories.FirstOrDefaultAsync(c => c.Id == id, ct);
-        if (category is null)
-        {
-            return NotFound();
-        }
-
-        var inUse = await db.Products.AnyAsync(p => p.CategoryId == id, ct)
-                    || await db.Categories.AnyAsync(c => c.ParentCategoryId == id, ct);
-        if (inUse)
-        {
-            return Conflict(new ProblemDetails
-            {
-                Title = "Category has products or child categories and cannot be deleted.",
-            });
-        }
-
-        db.Categories.Remove(category);
-        await db.SaveChangesAsync(ct);
+        await tree.DeleteAsync(id, ct);
         return NoContent();
     }
 }

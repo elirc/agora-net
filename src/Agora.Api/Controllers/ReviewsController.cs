@@ -1,5 +1,7 @@
 using Agora.Api.Auth;
 using Agora.Api.Contracts;
+using Agora.Api.Queries;
+using System.ComponentModel.DataAnnotations;
 using Agora.Domain.Entities;
 using Agora.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
@@ -20,15 +22,21 @@ public class ReviewsController(AgoraDbContext db) : ControllerBase
         Guid productId,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
+        [FromQuery, Range(1, 5)] int? minRating = null,
+        [FromQuery] string? sort = null,
         CancellationToken ct = default)
     {
-        if (page < 1 || pageSize < 1 || pageSize > MaxPageSize)
+        if (!QueryRules.ValidPage(page, pageSize, MaxPageSize))
         {
             return BadRequest(new ProblemDetails
             {
                 Title = $"page must be >= 1 and pageSize between 1 and {MaxPageSize}.",
             });
         }
+
+        var order = string.IsNullOrWhiteSpace(sort) ? "newest" : sort.Trim().ToLowerInvariant();
+        if (order is not ("newest" or "oldest"))
+            return BadRequest(new ProblemDetails { Title = "sort must be 'newest' or 'oldest'." });
 
         if (!await db.Products.AnyAsync(p => p.Id == productId, ct))
         {
@@ -37,15 +45,18 @@ public class ReviewsController(AgoraDbContext db) : ControllerBase
 
         var query = db.Reviews
             .AsNoTracking()
-            .Where(r => r.ProductId == productId && r.Status == ReviewStatus.Approved)
-            .OrderByDescending(r => r.CreatedAt)
+            .Where(r => r.ProductId == productId && r.Status == ReviewStatus.Approved
+                        && (!minRating.HasValue || r.Rating >= minRating.Value))
             .Join(db.Customers,
                 r => r.CustomerId,
                 c => c.Id,
                 (r, c) => new { Review = r, c.FullName, c.Email });
 
         var totalCount = await query.CountAsync(ct);
-        var rows = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+        var ordered = order == "oldest"
+            ? query.OrderBy(x => x.Review.CreatedAt).ThenBy(x => x.Review.Id)
+            : query.OrderByDescending(x => x.Review.CreatedAt).ThenBy(x => x.Review.Id);
+        var rows = await ordered.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
 
         return Ok(new PagedResult<ReviewResponse>(
             rows.Select(x => ReviewResponse.From(

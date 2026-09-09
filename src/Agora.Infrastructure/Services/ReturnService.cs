@@ -13,24 +13,27 @@ public sealed record CreateReturnInput(
     ReturnReason Reason,
     string? Comment,
     IReadOnlyList<ReturnLineInput> Lines,
-    Guid? CustomerId,
-    string? Email);
+    OrderAccessActor Actor);
 
 /// <summary>
 /// RMA lifecycle: create (fulfilled orders only, quantities capped by what is
 /// still returnable), approve (partial refund via the payment gateway +
 /// restock), reject, and requester cancellation.
 /// </summary>
-public class ReturnService(AgoraDbContext db, IPaymentGateway paymentGateway)
+public class ReturnService(AgoraDbContext db, IPaymentGateway paymentGateway, ReturnEligibilityService eligibility,
+    TimeProvider clock, GuestOrderAccessService orderAccess)
 {
     public async Task<ReturnRequest> CreateAsync(CreateReturnInput input, CancellationToken ct = default)
     {
+        // Creation has no external call. Serialize quantity observation and insertion locally.
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        var now = clock.GetUtcNow();
         var order = await db.Orders
             .Include(o => o.Items)
             .FirstOrDefaultAsync(o => o.Number == input.OrderNumber, ct)
             ?? throw new NotFoundException($"Order '{input.OrderNumber}' not found.");
 
-        EnsureRequesterOwnsOrder(order, input.CustomerId, input.Email);
+        await orderAccess.EnsureCanReadAsync(order, input.Actor, ct);
 
         if (order.Status != OrderStatus.Fulfilled)
         {
@@ -49,27 +52,14 @@ public class ReturnService(AgoraDbContext db, IPaymentGateway paymentGateway)
             throw new InvalidReturnRequestException("Duplicate order lines in return request.");
         }
 
-        // Quantities already tied up in open or accepted returns count against the cap.
-        var previouslyReturned = await db.ReturnRequestItems
-            .Where(i => i.ReturnRequest!.OrderId == order.Id
-                        && (i.ReturnRequest.Status == ReturnStatus.Requested
-                            || i.ReturnRequest.Status == ReturnStatus.Approved))
-            .GroupBy(i => i.OrderItemId)
-            .Select(g => new { g.Key, Quantity = g.Sum(i => i.Quantity) })
-            .ToDictionaryAsync(x => x.Key, x => x.Quantity, ct);
-
-        // Refunds follow the order's effective discount and tax rates so
-        // partial returns compose with order-level discounts.
-        var discountRate = order.Subtotal > 0 ? order.DiscountAmount / order.Subtotal : 0m;
-        var discountedSubtotal = order.Subtotal - order.DiscountAmount;
-        var taxRate = discountedSubtotal > 0 ? order.TaxAmount / discountedSubtotal : 0m;
-
-        var now = DateTimeOffset.UtcNow;
+        var evaluation = await eligibility.EvaluateAsync(order, now, ct);
+        if (!evaluation.Eligible) throw new InvalidReturnRequestException(string.Join(", ", evaluation.Reasons));
+        var remaining = evaluation.Lines.ToDictionary(l => l.OrderItemId, l => l.RemainingQuantity);
         var request = new ReturnRequest
         {
             Number = $"RMA-{now:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
             OrderId = order.Id,
-            CustomerId = input.CustomerId ?? order.CustomerId,
+            CustomerId = order.CustomerId,
             Reason = input.Reason,
             Comment = input.Comment?.Trim() ?? string.Empty,
             Currency = order.Currency,
@@ -82,18 +72,14 @@ public class ReturnService(AgoraDbContext db, IPaymentGateway paymentGateway)
                 ?? throw new InvalidReturnRequestException(
                     $"Order line '{line.OrderItemId}' does not belong to order {order.Number}.");
 
-            var alreadyReturned = previouslyReturned.GetValueOrDefault(orderItem.Id);
-            var returnable = orderItem.Quantity - alreadyReturned;
+            var returnable = remaining.GetValueOrDefault(orderItem.Id);
             if (line.Quantity < 1 || line.Quantity > returnable)
             {
                 throw new InvalidReturnRequestException(
                     $"Cannot return {line.Quantity} of '{orderItem.Sku}': {returnable} returnable.");
             }
 
-            var lineBase = orderItem.UnitPrice * line.Quantity;
-            var lineDiscounted = lineBase * (1 - discountRate);
-            var lineRefund = decimal.Round(
-                lineDiscounted * (1 + taxRate), 2, MidpointRounding.AwayFromZero);
+            var lineRefund = ReturnEligibilityRules.EstimateRefund(order, orderItem, line.Quantity);
 
             request.Items.Add(new ReturnRequestItem
             {
@@ -110,6 +96,7 @@ public class ReturnService(AgoraDbContext db, IPaymentGateway paymentGateway)
 
         db.ReturnRequests.Add(request);
         await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
         return request;
     }
 
@@ -161,10 +148,11 @@ public class ReturnService(AgoraDbContext db, IPaymentGateway paymentGateway)
         if (giftCardPortion > 0 && order.GiftCardCode is { } cardCode)
         {
             var giftCard = await db.GiftCards.FirstOrDefaultAsync(g => g.Code == cardCode, ct);
-            giftCard?.Credit(giftCardPortion);
+            if (giftCard is not null)
+                GiftCardAccounting.Credit(db, giftCard, giftCardPortion, order.Id, request.Id, clock.GetUtcNow());
         }
 
-        request.Approve(refundTransactionId, DateTimeOffset.UtcNow);
+        request.Approve(refundTransactionId, clock.GetUtcNow());
 
         var variantIds = request.Items.Select(i => i.ProductVariantId).ToList();
         var inventories = await db.InventoryItems
@@ -186,18 +174,18 @@ public class ReturnService(AgoraDbContext db, IPaymentGateway paymentGateway)
     public async Task<ReturnRequest> RejectAsync(string number, string? note, CancellationToken ct = default)
     {
         var request = await LoadAsync(number, ct);
-        request.Reject(note, DateTimeOffset.UtcNow);
+        request.Reject(note, clock.GetUtcNow());
         await db.SaveChangesAsync(ct);
         return request;
     }
 
     /// <summary>Requester cancellation while the RMA is still open.</summary>
     public async Task<ReturnRequest> CancelAsync(
-        string number, Guid? customerId, string? email, CancellationToken ct = default)
+        string number, OrderAccessActor actor, CancellationToken ct = default)
     {
         var request = await LoadAsync(number, ct);
-        EnsureRequesterOwnsOrder(request.Order!, customerId, email);
-        request.Cancel(DateTimeOffset.UtcNow);
+        await orderAccess.EnsureCanReadAsync(request.Order!, actor, ct);
+        request.Cancel(clock.GetUtcNow());
         await db.SaveChangesAsync(ct);
         return request;
     }
@@ -209,23 +197,4 @@ public class ReturnService(AgoraDbContext db, IPaymentGateway paymentGateway)
             .FirstOrDefaultAsync(r => r.Number == number, ct)
         ?? throw new NotFoundException($"Return '{number}' not found.");
 
-    /// <summary>
-    /// A requester must be the order's account owner or present the order's
-    /// email (guest flow). Failures read as 404 to avoid leaking orders.
-    /// </summary>
-    private static void EnsureRequesterOwnsOrder(Order order, Guid? customerId, string? email)
-    {
-        if (customerId is { } id && order.CustomerId == id)
-        {
-            return;
-        }
-
-        if (!string.IsNullOrWhiteSpace(email)
-            && string.Equals(order.Email, email.Trim(), StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-
-        throw new NotFoundException($"Order '{order.Number}' not found.");
-    }
 }

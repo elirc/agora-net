@@ -26,7 +26,7 @@ public class OrderStateApiTests(AgoraApiFactory factory) : IClassFixture<AgoraAp
         var order = await PlaceOrder("CAP-KHK", 1);
         await Fulfill(order.Number);
 
-        var response = await _client.PostAsync($"/api/orders/{order.Number}/cancel", null);
+        var response = await (await AdminClient()).PostAsync($"/api/orders/{order.Number}/cancel", null);
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -38,10 +38,10 @@ public class OrderStateApiTests(AgoraApiFactory factory) : IClassFixture<AgoraAp
     public async Task Refund_Twice_Returns409()
     {
         var order = await PlaceOrder("CAP-KHK", 1);
-        (await _client.PostAsync($"/api/orders/{order.Number}/refund", null))
+        (await (await AdminClient()).PostAsync($"/api/orders/{order.Number}/refund", null))
             .EnsureSuccessStatusCode();
 
-        var second = await _client.PostAsync($"/api/orders/{order.Number}/refund", null);
+        var second = await (await AdminClient()).PostAsync($"/api/orders/{order.Number}/refund", null);
 
         Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
     }
@@ -50,10 +50,10 @@ public class OrderStateApiTests(AgoraApiFactory factory) : IClassFixture<AgoraAp
     public async Task Cancel_RefundedOrder_Returns409()
     {
         var order = await PlaceOrder("CAP-KHK", 1);
-        (await _client.PostAsync($"/api/orders/{order.Number}/refund", null))
+        (await (await AdminClient()).PostAsync($"/api/orders/{order.Number}/refund", null))
             .EnsureSuccessStatusCode();
 
-        var response = await _client.PostAsync($"/api/orders/{order.Number}/cancel", null);
+        var response = await (await AdminClient()).PostAsync($"/api/orders/{order.Number}/cancel", null);
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
@@ -62,7 +62,7 @@ public class OrderStateApiTests(AgoraApiFactory factory) : IClassFixture<AgoraAp
     public async Task Fulfill_RefundedOrder_Returns409()
     {
         var order = await PlaceOrder("CAP-KHK", 1);
-        (await _client.PostAsync($"/api/orders/{order.Number}/refund", null))
+        (await (await AdminClient()).PostAsync($"/api/orders/{order.Number}/refund", null))
             .EnsureSuccessStatusCode();
 
         var admin = await AdminClient();
@@ -75,7 +75,7 @@ public class OrderStateApiTests(AgoraApiFactory factory) : IClassFixture<AgoraAp
     public async Task Rma_OnCancelledOrder_Returns409()
     {
         var order = await PlaceOrder("CAP-KHK", 1);
-        (await _client.PostAsync($"/api/orders/{order.Number}/cancel", null))
+        (await (await AdminClient()).PostAsync($"/api/orders/{order.Number}/cancel", null))
             .EnsureSuccessStatusCode();
 
         var response = await _client.PostAsJsonAsync($"/api/orders/{order.Number}/returns",
@@ -90,7 +90,7 @@ public class OrderStateApiTests(AgoraApiFactory factory) : IClassFixture<AgoraAp
     {
         var order = await PlaceOrder("CAP-KHK", 1);
         await Fulfill(order.Number);
-        (await _client.PostAsync($"/api/orders/{order.Number}/refund", null))
+        (await (await AdminClient()).PostAsync($"/api/orders/{order.Number}/refund", null))
             .EnsureSuccessStatusCode();
 
         var response = await _client.PostAsJsonAsync($"/api/orders/{order.Number}/returns",
@@ -150,7 +150,7 @@ public class OrderStateApiTests(AgoraApiFactory factory) : IClassFixture<AgoraAp
             new CreateFulfillmentRequest(null, null,
                 [new FulfillmentLineDto(order.Items.Single().Id, 1)]));
         Assert.Equal(HttpStatusCode.Created, partial.StatusCode);
-        var partiallyFulfilled = await _client.GetFromJsonAsync<OrderResponse>(
+        var partiallyFulfilled = await customer.GetFromJsonAsync<OrderResponse>(
             $"/api/orders/{order.Number}");
         Assert.Equal("PartiallyFulfilled", partiallyFulfilled!.Status);
 
@@ -192,6 +192,13 @@ public class OrderStateApiTests(AgoraApiFactory factory) : IClassFixture<AgoraAp
         var checkout = await client.PostAsJsonAsync("/api/checkout",
             new CheckoutRequest(token, email, Address, null, "tok_visa"));
         checkout.EnsureSuccessStatusCode();
-        return (await checkout.Content.ReadFromJsonAsync<OrderResponse>())!;
+        var receipt = (await checkout.Content.ReadFromJsonAsync<CheckoutResponse>())!;
+        if (receipt.GuestOrderAccessToken is not null)
+        {
+            client.DefaultRequestHeaders.Remove("X-Agora-Order-Access");
+            client.DefaultRequestHeaders.Add("X-Agora-Order-Access", receipt.GuestOrderAccessToken);
+        }
+        return System.Text.Json.JsonSerializer.Deserialize<OrderResponse>(
+            System.Text.Json.JsonSerializer.Serialize(receipt))!;
     }
 }

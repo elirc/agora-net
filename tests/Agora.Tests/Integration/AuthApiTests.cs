@@ -268,6 +268,12 @@ public class AuthApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiFacto
         var checkout = await client.PostAsJsonAsync("/api/checkout",
             new CheckoutRequest(token, "shopper@example.com", Address, null, "tok_visa"));
         checkout.EnsureSuccessStatusCode();
-        return (await checkout.Content.ReadFromJsonAsync<OrderResponse>())!.Number;
+        var receipt = (await checkout.Content.ReadFromJsonAsync<CheckoutResponse>())!;
+        if (receipt.GuestOrderAccessToken is not null)
+        {
+            client.DefaultRequestHeaders.Remove("X-Agora-Order-Access");
+            client.DefaultRequestHeaders.Add("X-Agora-Order-Access", receipt.GuestOrderAccessToken);
+        }
+        return receipt.Number;
     }
 }

@@ -11,7 +11,7 @@ namespace Agora.Api.Controllers;
 
 [ApiController]
 [Route("api")]
-public class ReturnsController(AgoraDbContext db, ReturnService returnService) : ControllerBase
+public class ReturnsController(AgoraDbContext db, ReturnService returnService, GuestOrderAccessService orderAccess) : ControllerBase
 {
     public const int MaxPageSize = 100;
 
@@ -20,6 +20,7 @@ public class ReturnsController(AgoraDbContext db, ReturnService returnService) :
     /// are matched by account; guests must supply the order email.
     /// </summary>
     [HttpPost("orders/{number}/returns")]
+    [Agora.Api.Filters.LocalSqliteWrite]
     public async Task<ActionResult<ReturnResponse>> Create(
         string number, CreateReturnRequestDto request, CancellationToken ct)
     {
@@ -37,8 +38,7 @@ public class ReturnsController(AgoraDbContext db, ReturnService returnService) :
                 reason,
                 request.Comment,
                 request.Items.Select(i => new ReturnLineInput(i.OrderItemId, i.Quantity)).ToList(),
-                User.GetCustomerId(),
-                request.Email),
+                Actor()),
             ct);
 
         return CreatedAtAction(nameof(GetByNumber), new { number = created.Number },
@@ -47,14 +47,17 @@ public class ReturnsController(AgoraDbContext db, ReturnService returnService) :
 
     /// <summary>Return status tracking by RMA number.</summary>
     [HttpGet("returns/{number}", Name = "GetReturnByNumber")]
-    public async Task<ActionResult<ReturnResponse>> GetByNumber(string number, CancellationToken ct)
+    public async Task<ActionResult<CustomerReturnResponse>> GetByNumber(string number, CancellationToken ct)
     {
         var request = await db.ReturnRequests
             .AsNoTracking()
             .Include(r => r.Items)
             .Include(r => r.Order)
             .FirstOrDefaultAsync(r => r.Number == number, ct);
-        return request is null ? NotFound() : Ok(ReturnResponse.From(request));
+        if (request is null) return NotFound();
+        await orderAccess.EnsureCanReadAsync(request.Order!, Actor(), ct);
+        Response.Headers.CacheControl = "private, no-store";
+        return Ok(CustomerReturnResponse.From(request));
     }
 
     /// <summary>The authenticated customer's returns, newest first.</summary>
@@ -149,7 +152,7 @@ public class ReturnsController(AgoraDbContext db, ReturnService returnService) :
     public async Task<ActionResult<ReturnResponse>> Cancel(
         string number, CancelReturnRequestDto request, CancellationToken ct) =>
         Ok(ReturnResponse.From(
-            await returnService.CancelAsync(number, User.GetCustomerId(), request.Email, ct)));
+            await returnService.CancelAsync(number, Actor(), ct)));
 
     private async Task<ReturnRequest> ReloadAsync(Guid id, CancellationToken ct) =>
         await db.ReturnRequests
@@ -157,4 +160,7 @@ public class ReturnsController(AgoraDbContext db, ReturnService returnService) :
             .Include(r => r.Items)
             .Include(r => r.Order)
             .FirstAsync(r => r.Id == id, ct);
+
+    private OrderAccessActor Actor() => new(User.GetCustomerId(), User.IsInRole("Admin"),
+        Request.Headers["X-Agora-Order-Access"].FirstOrDefault());
 }

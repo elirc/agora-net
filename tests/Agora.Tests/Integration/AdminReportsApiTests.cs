@@ -141,7 +141,8 @@ public class AdminReportsApiTests : IClassFixture<AgoraApiFactory>
         var report = await admin.GetFromJsonAsync<List<DiscountUsageResponse>>(
             "/api/admin/reports/discount-usage");
 
-        var welcome = report!.Single(r => r.Code == "WELCOME10");
+        Assert.NotNull(report);
+        var welcome = report.Single(r => r.Code == "WELCOME10");
         Assert.Equal(1, welcome.TimesUsed);
         Assert.Equal(1, welcome.OrderCount);
         Assert.Equal(5.45m, welcome.TotalDiscounted);

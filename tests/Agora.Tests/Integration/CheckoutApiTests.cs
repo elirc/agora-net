@@ -24,7 +24,10 @@ public class CheckoutApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiF
         Assert.NotNull(order);
         Assert.Equal("Paid", order.Status);
         Assert.StartsWith("ORD-", order.Number);
-        Assert.NotNull(order.PaymentTransactionId);
+        Assert.Null(order.PaymentTransactionId); // payment reference is deliberately not customer-facing
+        await factory.WithDbAsync(async db =>
+            Assert.StartsWith("txn_", (await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions
+                .SingleAsync(db.Orders, o => o.Number == order.Number)).PaymentTransactionId));
         Assert.Equal(39.98m, order.Subtotal);
         Assert.Equal(0m, order.DiscountAmount);
         Assert.Equal(3.20m, order.TaxAmount);      // 8% of 39.98 = 3.1984

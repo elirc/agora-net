@@ -1,6 +1,28 @@
-@Agora.Api_HostAddress = http://localhost:5077
+@baseUrl = http://localhost:5077
 
-GET {{Agora.Api_HostAddress}}/weatherforecast/
+### Start the API with: dotnet run --project src/Agora.Api
+GET {{baseUrl}}/health
+
+### Readiness checks the database
+GET {{baseUrl}}/health/ready
+
+### Predict: items is capped at 2; totalCount counts every match
+GET {{baseUrl}}/api/products?search=tee&pageSize=2
 Accept: application/json
 
-###
+### Price, currency, and stock must match the same variant
+GET {{baseUrl}}/api/products?minPrice=10&maxPrice=30&currency=usd&inStock=true&sort=price
+Accept: application/json
+
+### An unavailable variant can coexist with an available variant on a product
+GET {{baseUrl}}/api/products?inStock=false
+Accept: application/json
+
+### Expected: 400 application/problem+json with validation errors
+GET {{baseUrl}}/api/products?minPrice=40&maxPrice=20
+
+### Expected: 400, because the page offset exceeds the supported integer range
+GET {{baseUrl}}/api/products?page=2147483647&pageSize=100
+
+### Search for a literal percent sign; it is not a match-everything wildcard
+GET {{baseUrl}}/api/products?search=%25

@@ -1,4 +1,6 @@
 using Agora.Api.Contracts;
+using Agora.Api.Queries;
+using System.ComponentModel.DataAnnotations;
 using Agora.Domain.Entities;
 using Agora.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
@@ -13,12 +15,15 @@ public class ShippingMethodsController(AgoraDbContext db) : ControllerBase
 {
     /// <summary>Active shipping options shoppers can pick at checkout.</summary>
     [HttpGet]
-    public async Task<ActionResult<List<ShippingMethodResponse>>> List(CancellationToken ct)
+    public async Task<ActionResult<List<ShippingMethodResponse>>> List(
+        [FromQuery, Range(0, 365)] int? maxDeliveryDays = null, CancellationToken ct = default)
     {
         var methods = await db.ShippingMethods
             .AsNoTracking()
             .Where(m => m.IsActive)
+            .Where(m => !maxDeliveryDays.HasValue || m.MaxDays <= maxDeliveryDays.Value)
             .OrderBy(m => m.BaseRate)
+            .ThenBy(m => m.Code)
             .ToListAsync(ct);
         return Ok(methods.Select(ShippingMethodResponse.From).ToList());
     }
@@ -36,7 +41,7 @@ public class ShippingMethodsController(AgoraDbContext db) : ControllerBase
     public async Task<ActionResult<ShippingMethodResponse>> Create(
         CreateShippingMethodRequest request, CancellationToken ct)
     {
-        if (!Enum.TryParse<ShippingRateType>(request.RateType, ignoreCase: true, out var rateType))
+        if (!QueryRules.TryNamedEnum<ShippingRateType>(request.RateType, out var rateType))
         {
             return UnprocessableEntity(new ProblemDetails
             {
@@ -92,7 +97,7 @@ public class ShippingMethodsController(AgoraDbContext db) : ControllerBase
     public async Task<ActionResult<ShippingMethodResponse>> Update(
         string code, UpdateShippingMethodRequest request, CancellationToken ct)
     {
-        if (!Enum.TryParse<ShippingRateType>(request.RateType, ignoreCase: true, out var rateType))
+        if (!QueryRules.TryNamedEnum<ShippingRateType>(request.RateType, out var rateType))
         {
             return UnprocessableEntity(new ProblemDetails
             {

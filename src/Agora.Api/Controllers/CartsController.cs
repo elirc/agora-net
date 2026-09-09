@@ -10,7 +10,7 @@ namespace Agora.Api.Controllers;
 
 [ApiController]
 [Route("api/carts")]
-public class CartsController(AgoraDbContext db) : ControllerBase
+public class CartsController(AgoraDbContext db, Agora.Api.Queries.CartResponseFactory responses) : ControllerBase
 {
     [HttpPost]
     public async Task<ActionResult<CartResponse>> Create(CancellationToken ct)
@@ -18,9 +18,10 @@ public class CartsController(AgoraDbContext db) : ControllerBase
         // Signed-in shoppers get their cart attached; guests keep the token-only flow.
         var cart = new Cart { CustomerId = User.GetCustomerId() };
         db.Carts.Add(cart);
+        ValidateActiveCurrencies(cart);
         await db.SaveChangesAsync(ct);
 
-        return CreatedAtAction(nameof(GetByToken), new { token = cart.Token }, CartResponse.From(cart));
+        return CreatedAtAction(nameof(GetByToken), new { token = cart.Token }, await responses.CreateAsync(cart, ct));
     }
 
     /// <summary>Attaches a guest cart to the authenticated customer's account.</summary>
@@ -43,16 +44,17 @@ public class CartsController(AgoraDbContext db) : ControllerBase
             });
         }
 
-        cart.CustomerId = customerId;
+        cart.Claim(customerId, DateTimeOffset.UtcNow);
+        ValidateActiveCurrencies(cart);
         await db.SaveChangesAsync(ct);
-        return Ok(CartResponse.From(cart));
+        return Ok(await responses.CreateAsync(cart, ct));
     }
 
     [HttpGet("{token}")]
     public async Task<ActionResult<CartResponse>> GetByToken(string token, CancellationToken ct)
     {
         var cart = await LoadCart(token, tracking: false, ct);
-        return cart is null ? NotFound() : Ok(CartResponse.From(cart));
+        return cart is null ? NotFound() : Ok(await responses.CreateAsync(cart, ct));
     }
 
     [HttpPost("{token}/items")]
@@ -98,8 +100,9 @@ public class CartsController(AgoraDbContext db) : ControllerBase
             });
         }
 
+        ValidateActiveCurrencies(cart);
         await db.SaveChangesAsync(ct);
-        return Ok(CartResponse.From(cart));
+        return Ok(await responses.CreateAsync(cart, ct));
     }
 
     [HttpPut("{token}/items/{itemId:guid}")]
@@ -127,8 +130,9 @@ public class CartsController(AgoraDbContext db) : ControllerBase
         }
 
         cart.UpdateItemQuantity(itemId, request.Quantity); // 404s via NotFoundException
+        ValidateActiveCurrencies(cart);
         await db.SaveChangesAsync(ct);
-        return Ok(CartResponse.From(cart));
+        return Ok(await responses.CreateAsync(cart, ct));
     }
 
     /// <summary>Parks a line as saved-for-later (kept on the cart, out of totals/checkout).</summary>
@@ -143,8 +147,9 @@ public class CartsController(AgoraDbContext db) : ControllerBase
         }
 
         cart.SaveForLater(itemId); // 404s via NotFoundException
+        ValidateActiveCurrencies(cart);
         await db.SaveChangesAsync(ct);
-        return Ok(CartResponse.From(cart));
+        return Ok(await responses.CreateAsync(cart, ct));
     }
 
     /// <summary>Moves a saved-for-later line back into the active cart.</summary>
@@ -170,8 +175,9 @@ public class CartsController(AgoraDbContext db) : ControllerBase
         }
 
         cart.ActivateItem(itemId); // 404s via NotFoundException
+        ValidateActiveCurrencies(cart);
         await db.SaveChangesAsync(ct);
-        return Ok(CartResponse.From(cart));
+        return Ok(await responses.CreateAsync(cart, ct));
     }
 
     [HttpDelete("{token}/items/{itemId:guid}")]
@@ -184,8 +190,9 @@ public class CartsController(AgoraDbContext db) : ControllerBase
         }
 
         cart.RemoveItem(itemId);
+        ValidateActiveCurrencies(cart);
         await db.SaveChangesAsync(ct);
-        return Ok(CartResponse.From(cart));
+        return Ok(await responses.CreateAsync(cart, ct));
     }
 
     [HttpDelete("{token}")]
@@ -198,10 +205,16 @@ public class CartsController(AgoraDbContext db) : ControllerBase
         }
 
         cart.Clear();
+        ValidateActiveCurrencies(cart);
         await db.SaveChangesAsync(ct);
         return NoContent();
     }
 
+    private static void ValidateActiveCurrencies(Cart cart)
+    {
+        if (cart.ActiveItems.Select(i => i.ProductVariant?.Price.Currency).Where(c => c is not null).Distinct(StringComparer.Ordinal).Skip(1).Any())
+            throw new Agora.Domain.Common.DomainException("Active cart lines must use one currency.");
+    }
     private Task<Cart?> LoadCart(string token, bool tracking, CancellationToken ct)
     {
         var query = db.Carts

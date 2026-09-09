@@ -1,5 +1,9 @@
 # Getting started
 
+If you are learning backend development, begin with [your first hour](learning/01-first-hour.md)
+for PowerShell commands and a guided request trace. The longer walkthrough below
+uses Bash and `jq` for its shell variables and JSON extraction.
+
 ## Prerequisites
 
 - .NET 10 SDK
@@ -9,7 +13,7 @@
 
 ```bash
 dotnet build
-dotnet test                                # 427 tests
+dotnet test                                # unit + integration suites
 dotnet run --project src/Agora.Api         # http://localhost:5077
 ```
 

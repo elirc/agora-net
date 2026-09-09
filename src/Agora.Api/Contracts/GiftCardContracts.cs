@@ -16,7 +16,8 @@ public sealed record GiftCardResponse(
     decimal Balance,
     bool IsActive,
     DateTimeOffset? ExpiresAt,
-    DateTimeOffset CreatedAt)
+    DateTimeOffset CreatedAt,
+    Guid Id = default)
 {
     public static GiftCardResponse From(GiftCard card) => new(
         card.Code,
@@ -25,5 +26,6 @@ public sealed record GiftCardResponse(
         card.Balance,
         card.IsActive,
         card.ExpiresAt,
-        card.CreatedAt);
+        card.CreatedAt,
+        card.Id);
 }

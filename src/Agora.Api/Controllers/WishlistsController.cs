@@ -1,5 +1,7 @@
 using Agora.Api.Auth;
 using Agora.Api.Contracts;
+using Agora.Api.Queries;
+using System.ComponentModel.DataAnnotations;
 using Agora.Domain.Entities;
 using Agora.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
@@ -16,19 +18,27 @@ namespace Agora.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/me/wishlists")]
-public class WishlistsController(AgoraDbContext db) : ControllerBase
+public class WishlistsController(AgoraDbContext db, Agora.Api.Queries.CartResponseFactory responses) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<List<WishlistSummaryResponse>>> List(CancellationToken ct)
+    public async Task<ActionResult<List<WishlistSummaryResponse>>> List(
+        [FromQuery, MaxLength(100)] string? search = null, CancellationToken ct = default)
     {
         var customerId = User.GetCustomerId()!.Value;
         await GetOrCreateDefaultAsync(customerId, ct);
 
-        var summaries = await db.Wishlists
+        var query = db.Wishlists
             .AsNoTracking()
-            .Where(w => w.CustomerId == customerId)
+            .Where(w => w.CustomerId == customerId);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var pattern = QueryRules.LiteralContains(search);
+            query = query.Where(w => EF.Functions.Like(w.Name, pattern, "\\"));
+        }
+        var summaries = await query
             .OrderByDescending(w => w.IsDefault)
             .ThenBy(w => w.CreatedAt)
+            .ThenBy(w => w.Id)
             .Select(w => new { Wishlist = w, ItemCount = w.Items.Count })
             .ToListAsync(ct);
 
@@ -174,8 +184,22 @@ public class WishlistsController(AgoraDbContext db) : ControllerBase
         }
 
         wishlist.Items.Remove(item);
+        wishlist.MembershipChanged();
         await db.SaveChangesAsync(ct);
         return Ok(await ToResponseWithObservationAsync(id, ct));
+    }
+
+    [HttpDelete("{id:guid}/items")]
+    public async Task<IActionResult> ClearItems(Guid id, CancellationToken ct)
+    {
+        var customerId = User.GetCustomerId()!.Value;
+        var wishlist = await db.Wishlists.Include(w => w.Items)
+            .FirstOrDefaultAsync(w => w.Id == id && w.CustomerId == customerId, ct);
+        if (wishlist is null) return NotFound();
+        if (wishlist.Items.Count > 0) wishlist.MembershipChanged();
+        db.WishlistItems.RemoveRange(wishlist.Items);
+        await db.SaveChangesAsync(ct);
+        return NoContent();
     }
 
     /// <summary>Moves a wishlist item into a cart (quantity 1) and off the wishlist.</summary>
@@ -218,11 +242,62 @@ public class WishlistsController(AgoraDbContext db) : ControllerBase
         }
 
         wishlist.Items.Remove(item);
+        wishlist.MembershipChanged();
         await db.SaveChangesAsync(ct);
 
         // The moved line's variant/product may not be in the cart include graph yet.
         cartLine.ProductVariant ??= variant;
-        return Ok(CartResponse.From(cart));
+        return Ok(await responses.CreateAsync(cart, ct));
+    }
+
+    [HttpPut("{id:guid}/items/{itemId:guid}/note")]
+    public async Task<ActionResult<WishlistNoteResponse>> EditNote(
+        Guid id, Guid itemId, EditWishlistNoteRequest request, CancellationToken ct)
+    {
+        var customerId = User.GetCustomerId()!.Value;
+        var item = await db.WishlistItems.FirstOrDefaultAsync(i => i.Id == itemId
+            && i.WishlistId == id && i.Wishlist!.CustomerId == customerId, ct);
+        if (item is null) return NotFound();
+        if (item.NoteVersion != request.ExpectedVersion) return Conflict(new ProblemDetails { Title = "The note has changed. Reload before editing." });
+        item.EditNote(request.Note);
+        await db.SaveChangesAsync(ct);
+        return Ok(new WishlistNoteResponse(item.Id, item.Note, item.NoteVersion));
+    }
+
+    [HttpPost("{id:guid}/copy-items")]
+    public async Task<ActionResult<WishlistCopyResponse>> CopyItems(
+        Guid id, CopyWishlistItemsRequest request, CancellationToken ct)
+    {
+        var customerId = User.GetCustomerId()!.Value;
+        var target = await LoadAsync(id, customerId, ct);
+        var source = await LoadAsync(request.SourceId, customerId, ct);
+        if (target is null || source is null) return NotFound();
+        if (id == request.SourceId) return UnprocessableEntity(new ProblemDetails { Title = "Source and target must differ." });
+        if (target.MembershipVersion != request.ExpectedTargetVersion)
+            return Conflict(new ProblemDetails { Title = "Target membership has changed. Reload before copying." });
+        var byId = source.Items.ToDictionary(i => i.Id);
+        if (request.ItemIds.Any(itemId => !byId.ContainsKey(itemId)))
+            return UnprocessableEntity(new ProblemDetails { Title = "Every selected item must belong to the source wishlist." });
+        var existing = target.Items.Select(i => i.ProductVariantId).ToHashSet();
+        var added = new List<Guid>();
+        var skipped = new List<Guid>();
+        foreach (var itemId in request.ItemIds)
+        {
+            var original = byId[itemId];
+            if (!existing.Add(original.ProductVariantId)) { skipped.Add(original.ProductVariantId); continue; }
+            var item = target.AddItem(original.ProductVariantId, (original.ProductVariant?.Inventory?.QuantityAvailable ?? 0) <= 0);
+            db.WishlistItems.Add(item);
+            added.Add(item.ProductVariantId);
+        }
+        // SaveChanges atomically commits child inserts and the parent's conditional revision update.
+        // A no-op also checks its revision against a competing membership edit, without advancing it.
+        if (added.Count == 0) db.Entry(target).Property(w => w.MembershipVersion).IsModified = true;
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateException exception) when (exception.InnerException is Microsoft.Data.Sqlite.SqliteException { SqliteExtendedErrorCode: 2067 })
+        {
+            return Conflict(new ProblemDetails { Title = "Target membership changed while copying. Reload before retrying." });
+        }
+        return Ok(new WishlistCopyResponse(added, skipped, target.MembershipVersion));
     }
 
     private async Task<ActionResult<WishlistResponse>> AddItemCore(

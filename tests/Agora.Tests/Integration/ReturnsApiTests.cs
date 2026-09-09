@@ -68,6 +68,7 @@ public class ReturnsApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiFa
     {
         var order = await PlaceFulfilledOrder("CHG-65W", 1);
         var itemId = await OrderItemId(order.Number, "CHG-65W");
+        _client.DefaultRequestHeaders.Remove("X-Agora-Order-Access");
 
         var response = await _client.PostAsJsonAsync($"/api/orders/{order.Number}/returns",
             new CreateReturnRequestDto("wrong@example.com", "Damaged", null,
@@ -189,7 +190,7 @@ public class ReturnsApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiFa
         var admin = await AdminClient();
         (await admin.PostAsync($"/api/returns/{rma.Number}/approve", null)).EnsureSuccessStatusCode();
 
-        var refund = await _client.PostAsync($"/api/orders/{order.Number}/refund", null);
+        var refund = await admin.PostAsync($"/api/orders/{order.Number}/refund", null);
 
         Assert.Equal(HttpStatusCode.Conflict, refund.StatusCode);
     }
@@ -233,7 +234,7 @@ public class ReturnsApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiFa
         client.UseBearer(await TestAuth.RegisterAsync(client, "rma-owner@example.com"));
 
         var order = await PlaceFulfilledOrder("CHG-65W", 1, client, "rma-owner@example.com");
-        var itemId = await OrderItemId(order.Number, "CHG-65W");
+        var itemId = await OrderItemId(order.Number, "CHG-65W", client);
 
         // No email needed: matched by account.
         var create = await client.PostAsJsonAsync($"/api/orders/{order.Number}/returns",
@@ -277,7 +278,10 @@ public class ReturnsApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiFa
         var checkout = await client.PostAsJsonAsync("/api/checkout",
             new CheckoutRequest(token, email, Address, discount, "tok_visa"));
         checkout.EnsureSuccessStatusCode();
-        return (await checkout.Content.ReadFromJsonAsync<OrderResponse>())!;
+        var result=(await checkout.Content.ReadFromJsonAsync<CheckoutResponse>())!;
+        if(result.GuestOrderAccessToken is not null){client.DefaultRequestHeaders.Remove("X-Agora-Order-Access");client.DefaultRequestHeaders.Add("X-Agora-Order-Access",result.GuestOrderAccessToken);}
+        return System.Text.Json.JsonSerializer.Deserialize<OrderResponse>(
+            System.Text.Json.JsonSerializer.Serialize(result))!;
     }
 
     private async Task<OrderResponse> PlaceFulfilledOrder(
@@ -291,9 +295,9 @@ public class ReturnsApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiFa
         return (await fulfill.Content.ReadFromJsonAsync<OrderResponse>())!;
     }
 
-    private async Task<Guid> OrderItemId(string orderNumber, string sku)
+    private async Task<Guid> OrderItemId(string orderNumber, string sku, HttpClient? client = null)
     {
-        var order = await _client.GetFromJsonAsync<OrderResponse>($"/api/orders/{orderNumber}");
+        var order = await (client ?? _client).GetFromJsonAsync<OrderResponse>($"/api/orders/{orderNumber}");
         return order!.Items.First(i => i.Sku == sku).Id;
     }
 

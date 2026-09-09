@@ -10,7 +10,8 @@ namespace Agora.Infrastructure.Services;
 public class OrderService(
     AgoraDbContext db,
     IPaymentGateway paymentGateway,
-    WebhookService webhookService)
+    WebhookService webhookService,
+    TimeProvider clock)
 {
     /// <summary>Cancels a pending or paid order; paid orders are refunded and restocked.</summary>
     public async Task<Order> CancelAsync(string number, CancellationToken ct = default)
@@ -18,7 +19,7 @@ public class OrderService(
         var order = await LoadAsync(number, ct);
         var wasPaid = order.Status == OrderStatus.Paid;
 
-        order.Cancel(DateTimeOffset.UtcNow);
+        order.Cancel(clock.GetUtcNow());
 
         if (wasPaid)
         {
@@ -44,15 +45,18 @@ public class OrderService(
                 $"Order {order.Number} has approved returns; refund the remaining lines via RMAs instead.");
         }
 
-        order.Refund(DateTimeOffset.UtcNow);
+        var now = clock.GetUtcNow();
+        order.Refund(now);
 
         await RefundTenderAsync(order, ct);
         await RestockAsync(order, ct);
 
+        // External refund calls finish before taking the local writer lock.
+        // The changed order, stock/ledger, event, and selected deliveries commit together.
+        await using var completion = await db.Database.BeginTransactionAsync(ct);
+        await webhookService.StageAsync(WebhookEvents.OrderRefunded, WebhookService.OrderPayload(order), now, ct);
         await db.SaveChangesAsync(ct);
-
-        await webhookService.DispatchAsync(
-            WebhookEvents.OrderRefunded, WebhookService.OrderPayload(order), ct);
+        await completion.CommitAsync(ct);
 
         return order;
     }
@@ -85,7 +89,8 @@ public class OrderService(
         if (order.GiftCardAmount > 0 && order.GiftCardCode is { } cardCode)
         {
             var giftCard = await db.GiftCards.FirstOrDefaultAsync(g => g.Code == cardCode, ct);
-            giftCard?.Credit(order.GiftCardAmount);
+            if (giftCard is not null)
+                GiftCardAccounting.Credit(db, giftCard, order.GiftCardAmount, order.Id, null, clock.GetUtcNow());
         }
     }
 

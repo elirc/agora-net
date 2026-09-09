@@ -12,7 +12,7 @@ public sealed record FulfillmentLineInput(Guid OrderItemId, int Quantity);
 /// cumulative shipment coverage (PartiallyFulfilled until every line is
 /// covered, then Fulfilled).
 /// </summary>
-public class FulfillmentService(AgoraDbContext db, WebhookService webhookService)
+public class FulfillmentService(AgoraDbContext db, WebhookService webhookService, TimeProvider clock)
 {
     public const string DefaultCarrier = "Manual";
 
@@ -25,8 +25,12 @@ public class FulfillmentService(AgoraDbContext db, WebhookService webhookService
         string? carrier,
         string? trackingNumber,
         IReadOnlyList<FulfillmentLineInput>? lines,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        Guid? assignmentId = null,
+        Guid? actorId = null)
     {
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        var now = clock.GetUtcNow();
         var order = await db.Orders
             .Include(o => o.Items)
             .FirstOrDefaultAsync(o => o.Number == orderNumber, ct)
@@ -36,6 +40,22 @@ public class FulfillmentService(AgoraDbContext db, WebhookService webhookService
         {
             throw new InvalidOrderStateException(
                 $"Order {order.Number} cannot be fulfilled from status {order.Status}.");
+        }
+
+        if (await db.Set<OrderHold>().AnyAsync(hold => hold.OrderId == order.Id && hold.IsActive, ct))
+            throw new WarehouseCoordinationConflictException("This order has an active operational hold.");
+
+        var assignment = await db.Set<WarehouseAssignment>()
+            .SingleOrDefaultAsync(slot => slot.OrderId == order.Id, ct);
+        if (assignment is not null && assignment.IsLive(now))
+        {
+            if (assignmentId is null || actorId is null)
+                throw new WarehouseCoordinationConflictException("This order has a live warehouse assignment.");
+            assignment.Authorize(actorId.Value, assignmentId.Value, assignment.Revision, now);
+        }
+        else if (assignmentId is not null)
+        {
+            throw new WarehouseCoordinationConflictException("The supplied warehouse assignment is expired or stale.");
         }
 
         var alreadyFulfilled = await FulfilledQuantitiesAsync(order.Id, ct);
@@ -58,7 +78,6 @@ public class FulfillmentService(AgoraDbContext db, WebhookService webhookService
             throw new InvalidFulfillmentException("Duplicate order lines in fulfillment.");
         }
 
-        var now = DateTimeOffset.UtcNow;
         var fulfillment = new Fulfillment
         {
             Number = $"FUL-{now:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
@@ -106,19 +125,21 @@ public class FulfillmentService(AgoraDbContext db, WebhookService webhookService
         if (fullyCovered)
         {
             order.MarkFulfilled(now);
+            if (assignment is not null) db.Remove(assignment);
         }
         else
         {
             order.MarkPartiallyFulfilled();
         }
 
-        await db.SaveChangesAsync(ct);
-
         if (fullyCovered)
         {
-            await webhookService.DispatchAsync(
-                WebhookEvents.OrderFulfilled, WebhookService.OrderPayload(order), ct);
+            await webhookService.StageAsync(
+                WebhookEvents.OrderFulfilled, WebhookService.OrderPayload(order), now, ct);
         }
+
+        await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
 
         return fulfillment;
     }

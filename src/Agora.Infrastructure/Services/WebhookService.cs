@@ -41,56 +41,42 @@ public sealed class FakeWebhookSender : IWebhookSender
 /// with its signed payload and attempt history and can be retried while under
 /// the attempt cap.
 /// </summary>
-public class WebhookService(AgoraDbContext db, IWebhookSender sender)
+public class WebhookService(AgoraDbContext db, TimeProvider clock)
 {
     private static readonly JsonSerializerOptions PayloadOptions =
         new(JsonSerializerDefaults.Web);
 
-    /// <summary>Creates and immediately attempts one delivery per subscribed endpoint.</summary>
-    public async Task DispatchAsync(string eventType, object data, CancellationToken ct = default)
+    /// <summary>Stages durable intent and frozen deliveries; caller owns SaveChanges and its business transaction.</summary>
+    public async Task<OutboxEvent> StageAsync(string eventType, object data, DateTimeOffset now, CancellationToken ct = default)
     {
+        if (!WebhookEvents.IsKnown(eventType)) throw new DomainException("Unknown webhook event type.");
+        var dataJson = JsonSerializer.Serialize(data, PayloadOptions);
+        if (Encoding.UTF8.GetByteCount(dataJson) > 65_536) throw new DomainException("Webhook event payload exceeds 64 KiB.");
+        var outbox = new OutboxEvent { EventType = eventType, SchemaVersion = 1, DataJson = dataJson, OccurredAt = now };
+        db.Set<OutboxEvent>().Add(outbox);
         var subscriptions = await db.WebhookSubscriptions
-            .Where(s => s.IsActive)
+            .Where(s => s.IsActive && !s.IsDeleted)
             .ToListAsync(ct);
         var matching = subscriptions.Where(s => s.SubscribesTo(eventType)).ToList();
-        if (matching.Count == 0)
-        {
-            return;
-        }
-
-        var now = DateTimeOffset.UtcNow;
         foreach (var subscription in matching)
-        {
-            var delivery = new WebhookDelivery
-            {
-                SubscriptionId = subscription.Id,
-                EventType = eventType,
-                CreatedAt = now,
-            };
-            delivery.Payload = JsonSerializer.Serialize(new
-            {
-                id = delivery.Id,
-                @event = eventType,
-                createdAt = now,
-                data,
-            }, PayloadOptions);
-            delivery.Signature = WebhookSigner.ComputeSignature(subscription.Secret, delivery.Payload);
+            outbox.Deliveries.Add(CreateDelivery(outbox, subscription, now));
+        return outbox;
+    }
 
-            var result = await sender.SendAsync(
-                subscription.Url, delivery.Payload, delivery.Signature, ct);
-            delivery.RecordAttempt(result.Success, result.StatusCode, now);
-
-            db.WebhookDeliveries.Add(delivery);
-        }
-
-        await db.SaveChangesAsync(ct);
+    public static WebhookDelivery CreateDelivery(OutboxEvent outbox, WebhookSubscription subscription, DateTimeOffset now)
+    {
+        var delivery = new WebhookDelivery { SubscriptionId = subscription.Id, EventId = outbox.Id,
+            EventType = outbox.EventType, CreatedAt = now, DestinationUrl = subscription.Url };
+        delivery.Payload = JsonSerializer.Serialize(new { id = delivery.Id, eventId = outbox.Id, schemaVersion = outbox.SchemaVersion,
+            @event = outbox.EventType, createdAt = outbox.OccurredAt, data = JsonSerializer.Deserialize<JsonElement>(outbox.DataJson) }, PayloadOptions);
+        if (Encoding.UTF8.GetByteCount(delivery.Payload) > 65_536) throw new DomainException("Webhook delivery envelope exceeds 64 KiB.");
+        delivery.Signature = WebhookSigner.ComputeSignature(subscription.Secret, delivery.Payload); delivery.Queue(now); return delivery;
     }
 
     /// <summary>Re-attempts a failed delivery (409 once the attempt cap is reached).</summary>
     public async Task<WebhookDelivery> RetryAsync(Guid deliveryId, CancellationToken ct = default)
     {
-        var delivery = await db.WebhookDeliveries
-            .Include(d => d.Subscription)
+        var delivery = await db.WebhookDeliveries.Include(d => d.Subscription)
             .FirstOrDefaultAsync(d => d.Id == deliveryId, ct)
             ?? throw new NotFoundException($"Webhook delivery '{deliveryId}' not found.");
 
@@ -104,12 +90,10 @@ public class WebhookService(AgoraDbContext db, IWebhookSender sender)
             throw new InvalidWebhookDeliveryException(
                 $"Delivery has exhausted its {WebhookDelivery.MaxAttempts} attempts.");
         }
+        if (delivery.Subscription is null || !delivery.Subscription.IsActive || delivery.Subscription.IsDeleted)
+            throw new InvalidWebhookDeliveryException("Delivery subscription is inactive.");
 
-        var result = await sender.SendAsync(
-            delivery.Subscription!.Url, delivery.Payload, delivery.Signature, ct);
-        delivery.RecordAttempt(result.Success, result.StatusCode, DateTimeOffset.UtcNow);
-
-        await db.SaveChangesAsync(ct);
+        delivery.Schedule(clock.GetUtcNow()); await db.SaveChangesAsync(ct);
         return delivery;
     }
 

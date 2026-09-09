@@ -2,6 +2,7 @@ using Agora.Api.Contracts;
 using Agora.Domain.Common;
 using Agora.Domain.Entities;
 using Agora.Infrastructure.Persistence;
+using Agora.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -10,7 +11,7 @@ namespace Agora.Api.Controllers;
 
 [ApiController]
 [Route("api/gift-cards")]
-public class GiftCardsController(AgoraDbContext db) : ControllerBase
+public class GiftCardsController(AgoraDbContext db, TimeProvider clock) : ControllerBase
 {
     public const int MaxPageSize = 100;
 
@@ -22,7 +23,7 @@ public class GiftCardsController(AgoraDbContext db) : ControllerBase
     {
         var card = new GiftCard(
             request.Amount, request.Currency ?? Money.DefaultCurrency, request.ExpiresAt);
-        db.GiftCards.Add(card);
+        GiftCardAccounting.Issue(db, card, clock.GetUtcNow());
         await db.SaveChangesAsync(ct);
 
         return CreatedAtAction(nameof(GetByCode), new { code = card.Code },

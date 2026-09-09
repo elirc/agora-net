@@ -11,7 +11,7 @@ namespace Agora.Api.Controllers;
 [ApiController]
 [Authorize(Roles = "Admin")]
 [Route("api/webhooks")]
-public class WebhooksController(AgoraDbContext db, WebhookService webhookService) : ControllerBase
+public class WebhooksController(AgoraDbContext db, WebhookService webhookService, TimeProvider clock) : ControllerBase
 {
     public const int MaxPageSize = 100;
 
@@ -29,7 +29,7 @@ public class WebhooksController(AgoraDbContext db, WebhookService webhookService
             });
         }
 
-        var query = db.WebhookSubscriptions.AsNoTracking().OrderBy(s => s.CreatedAt);
+        var query = db.WebhookSubscriptions.AsNoTracking().Where(s => !s.IsDeleted).OrderBy(s => s.CreatedAt);
         var totalCount = await query.CountAsync(ct);
         var subscriptions = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
 
@@ -42,7 +42,7 @@ public class WebhooksController(AgoraDbContext db, WebhookService webhookService
     public async Task<ActionResult<WebhookSubscriptionResponse>> GetById(Guid id, CancellationToken ct)
     {
         var subscription = await db.WebhookSubscriptions.AsNoTracking()
-            .FirstOrDefaultAsync(s => s.Id == id, ct);
+            .FirstOrDefaultAsync(s => s.Id == id && !s.IsDeleted, ct);
         return subscription is null ? NotFound() : Ok(WebhookSubscriptionResponse.From(subscription));
     }
 
@@ -71,10 +71,12 @@ public class WebhooksController(AgoraDbContext db, WebhookService webhookService
     }
 
     [HttpPut("{id:guid}")]
+    [Agora.Api.Filters.LocalSqliteWrite]
     public async Task<ActionResult<WebhookSubscriptionResponse>> Update(
         Guid id, SaveWebhookSubscriptionRequest request, CancellationToken ct)
     {
-        var subscription = await db.WebhookSubscriptions.FirstOrDefaultAsync(s => s.Id == id, ct);
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        var subscription = await db.WebhookSubscriptions.FirstOrDefaultAsync(s => s.Id == id && !s.IsDeleted, ct);
         if (subscription is null)
         {
             return NotFound();
@@ -90,22 +92,35 @@ public class WebhooksController(AgoraDbContext db, WebhookService webhookService
         subscription.Secret = request.Secret;
         subscription.Events = events!;
         subscription.IsActive = request.IsActive ?? subscription.IsActive;
+        if (!subscription.IsActive)
+        {
+            var queued = await db.WebhookDeliveries.Where(d => d.SubscriptionId == id &&
+                (d.Status == WebhookDeliveryStatus.Pending || d.Status == WebhookDeliveryStatus.Failed)).ToListAsync(ct);
+            foreach (var delivery in queued) delivery.Cancel();
+        }
         await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
 
         return Ok(WebhookSubscriptionResponse.From(subscription));
     }
 
     [HttpDelete("{id:guid}")]
+    [Agora.Api.Filters.LocalSqliteWrite]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var subscription = await db.WebhookSubscriptions.FirstOrDefaultAsync(s => s.Id == id, ct);
         if (subscription is null)
         {
             return NotFound();
         }
 
-        db.WebhookSubscriptions.Remove(subscription);
+        subscription.SoftDelete(clock.GetUtcNow());
+        var queued = await db.WebhookDeliveries.Where(d => d.SubscriptionId == id &&
+            (d.Status == WebhookDeliveryStatus.Pending || d.Status == WebhookDeliveryStatus.Failed)).ToListAsync(ct);
+        foreach (var delivery in queued) delivery.Cancel();
         await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
         return NoContent();
     }
 
@@ -145,7 +160,7 @@ public class WebhooksController(AgoraDbContext db, WebhookService webhookService
     /// <summary>Re-attempts a failed delivery.</summary>
     [HttpPost("deliveries/{id:guid}/retry")]
     public async Task<ActionResult<WebhookDeliveryResponse>> Retry(Guid id, CancellationToken ct) =>
-        Ok(WebhookDeliveryResponse.From(await webhookService.RetryAsync(id, ct)));
+        Accepted(WebhookDeliveryResponse.From(await webhookService.RetryAsync(id, ct)));
 
     private (List<string>? Events, ObjectResult? Error) NormalizeEvents(List<string> requested)
     {

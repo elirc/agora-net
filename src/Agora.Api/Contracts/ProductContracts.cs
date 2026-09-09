@@ -10,14 +10,16 @@ public sealed record VariantResponse(
     string Sku,
     string Name,
     MoneyDto Price,
-    Dictionary<string, string> Options)
+    Dictionary<string, string> Options,
+    int WeightGrams = 0)
 {
     public static VariantResponse From(ProductVariant variant) => new(
         variant.Id,
         variant.Sku,
         variant.Name,
         new MoneyDto(variant.Price.Amount, variant.Price.Currency),
-        variant.Options);
+        variant.Options,
+        variant.WeightGrams);
 }
 
 public sealed record ImageResponse(Guid Id, string Url, string? AltText, int SortOrder)
@@ -40,6 +42,11 @@ public sealed record ProductResponse(
     int ReviewCount,
     string? TaxCategoryCode)
 {
+    public int VariantCount => Variants.Count;
+    public ImageResponse? PrimaryImage => Images.FirstOrDefault();
+    public IReadOnlyList<TagResponse> Tags { get; init; } = [];
+    public long TagVersion { get; init; }
+
     public static ProductResponse From(
         Product product, decimal? averageRating = null, int reviewCount = 0) => new(
         product.Id,
@@ -49,20 +56,26 @@ public sealed record ProductResponse(
         product.Description,
         product.IsActive,
         product.CreatedAt,
-        product.Variants.Select(VariantResponse.From).ToList(),
-        product.Images.OrderBy(i => i.SortOrder).Select(ImageResponse.From).ToList(),
+        product.Variants.OrderBy(v => v.Sku, StringComparer.Ordinal).ThenBy(v => v.Id)
+            .Select(VariantResponse.From).ToList(),
+        product.Images.OrderBy(i => i.SortOrder).ThenBy(i => i.Id).Select(ImageResponse.From).ToList(),
         averageRating,
         reviewCount,
-        product.TaxCategory?.Code);
+        product.TaxCategory?.Code)
+        {
+            Tags = product.Tags.OrderBy(t => t.Tag!.Slug, StringComparer.Ordinal).Select(t => TagResponse.From(t.Tag!)).ToArray(),
+            TagVersion = product.TagVersion,
+        };
 }
 
 public sealed record CreateVariantRequest(
-    [Required, MaxLength(64)] string Sku,
+    [Required, MaxLength(ProductInputRules.SkuLength)] string Sku,
     [MaxLength(200)] string? Name,
     [Range(0, 1_000_000)] decimal Price,
     [RegularExpression("^[A-Za-z]{3}$", ErrorMessage = "Currency must be a 3-letter ISO code.")]
     string? Currency,
-    Dictionary<string, string>? Options);
+    Dictionary<string, string>? Options,
+    [Range(0, 1_000_000)] int WeightGrams = 0);
 
 public sealed record CreateImageRequest(
     [Required, MaxLength(2000), Url] string Url,
@@ -71,12 +84,12 @@ public sealed record CreateImageRequest(
 
 public sealed record CreateProductRequest(
     [Required] Guid CategoryId,
-    [Required, MaxLength(200)] string Name,
-    [MaxLength(200)] string? Slug,
+    [Required, MaxLength(ProductInputRules.NameLength)] string Name,
+    [MaxLength(ProductInputRules.SlugLength)] string? Slug,
     [MaxLength(4000)] string? Description,
     bool? IsActive,
     [Required, MinLength(1)] List<CreateVariantRequest> Variants,
-    List<CreateImageRequest>? Images,
+    [MaxLength(10)] List<CreateImageRequest>? Images,
     [MaxLength(64)] string? TaxCategoryCode = null);
 
 public sealed record UpdateProductRequest(

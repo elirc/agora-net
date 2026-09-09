@@ -133,10 +133,11 @@ public class TaxGiftCardApiTests(AgoraApiFactory factory) : IClassFixture<AgoraA
         // 2 tees: total 49.17 -> 10 gift card + 39.17 gateway charge.
         var order = await Checkout("TEE-BLK-S", 2, UsAddress, giftCardCode: card);
 
-        Assert.Equal(card, order.GiftCardCode);
+        Assert.Null(order.GiftCardCode);
         Assert.Equal(10m, order.GiftCardAmount);
         Assert.Equal(49.17m, order.Total);
-        Assert.StartsWith("txn_", order.PaymentTransactionId);
+        Assert.Null(order.PaymentTransactionId);
+        await AssertStoredTender(order.Number, card, "txn_");
 
         var balance = await _client.GetFromJsonAsync<GiftCardResponse>($"/api/gift-cards/{card}");
         Assert.Equal(0m, balance!.Balance);
@@ -153,7 +154,8 @@ public class TaxGiftCardApiTests(AgoraApiFactory factory) : IClassFixture<AgoraA
             giftCardCode: card, paymentToken: "tok_fail");
 
         Assert.Equal(49.17m, order.GiftCardAmount);
-        Assert.StartsWith("gift_", order.PaymentTransactionId);
+        Assert.Null(order.PaymentTransactionId);
+        await AssertStoredTender(order.Number, card, "gift_");
         Assert.Equal("Paid", order.Status);
 
         var balance = await _client.GetFromJsonAsync<GiftCardResponse>($"/api/gift-cards/{card}");
@@ -228,7 +230,9 @@ public class TaxGiftCardApiTests(AgoraApiFactory factory) : IClassFixture<AgoraA
         Assert.Equal(0m, (await _client.GetFromJsonAsync<GiftCardResponse>(
             $"/api/gift-cards/{card}"))!.Balance);
 
-        var refund = await _client.PostAsync($"/api/orders/{order.Number}/refund", null);
+        var admin = _factory.CreateClient();
+        await admin.AuthenticateAsAdminAsync();
+        var refund = await admin.PostAsync($"/api/orders/{order.Number}/refund", null);
 
         Assert.Equal(HttpStatusCode.OK, refund.StatusCode);
         var balance = await _client.GetFromJsonAsync<GiftCardResponse>($"/api/gift-cards/{card}");
@@ -274,4 +278,13 @@ public class TaxGiftCardApiTests(AgoraApiFactory factory) : IClassFixture<AgoraA
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<OrderResponse>())!;
     }
+
+    private Task AssertStoredTender(string number, string card, string transactionPrefix) =>
+        _factory.WithDbAsync(async db =>
+        {
+            var stored = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions
+                .SingleAsync(db.Orders, o => o.Number == number);
+            Assert.Equal(card, stored.GiftCardCode);
+            Assert.StartsWith(transactionPrefix, stored.PaymentTransactionId);
+        });
 }

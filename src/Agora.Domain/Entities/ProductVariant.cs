@@ -21,4 +21,20 @@ public class ProductVariant
     public Dictionary<string, string> Options { get; set; } = [];
 
     public InventoryItem? Inventory { get; set; }
+    public long Version { get; private set; }
+
+    public void Edit(string name, decimal price, int weightGrams, IReadOnlyDictionary<string, string> options)
+    {
+        var normalizedName = name.Trim();
+        if (normalizedName.Length is < 1 or > 120) throw new DomainException("Variant name must contain 1–120 characters after trimming.");
+        if (price is < 0 or > 1_000_000 || decimal.Round(price, 2) != price)
+            throw new DomainException("Price must be between zero and 1,000,000 with at most two decimal places.");
+        if (weightGrams is < 0 or > 1_000_000) throw new DomainException("Weight must be between zero and 1,000,000 grams.");
+        var normalizedOptions = VariantOptionRules.Normalize(options);
+        Name = normalizedName;
+        Price = new Money(price, Price.Currency);
+        WeightGrams = weightGrams;
+        Options = normalizedOptions;
+        Version = checked(Version + 1);
+    }
 }

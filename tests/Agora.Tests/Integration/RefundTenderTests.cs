@@ -26,7 +26,7 @@ public class RefundTenderTests(AgoraApiFactory factory) : IClassFixture<AgoraApi
         var order = await PlaceOrder([("TEE-BLK-S", 2)], giftCardCode: card); // 10 gift + 39.17 card
         Assert.Equal(0m, await Balance(card));
 
-        (await _client.PostAsync($"/api/orders/{order.Number}/cancel", null))
+        (await (await AdminClient()).PostAsync($"/api/orders/{order.Number}/cancel", null))
             .EnsureSuccessStatusCode();
 
         Assert.Equal(10m, await Balance(card));
@@ -86,7 +86,7 @@ public class RefundTenderTests(AgoraApiFactory factory) : IClassFixture<AgoraApi
                 new FulfillmentLineDto(order.Items.Single().Id, 1)]));
         Assert.Equal(HttpStatusCode.Created, partial.StatusCode);
 
-        var refund = await _client.PostAsync($"/api/orders/{order.Number}/refund", null);
+        var refund = await admin.PostAsync($"/api/orders/{order.Number}/refund", null);
 
         Assert.Equal(HttpStatusCode.OK, refund.StatusCode);
         var refunded = await refund.Content.ReadFromJsonAsync<OrderResponse>();
@@ -218,6 +218,10 @@ public class RefundTenderTests(AgoraApiFactory factory) : IClassFixture<AgoraApi
             new CheckoutRequest(token, GuestEmail, Address, discount, "tok_visa",
                 null, null, giftCardCode));
         checkout.EnsureSuccessStatusCode();
-        return (await checkout.Content.ReadFromJsonAsync<OrderResponse>())!;
+        var receipt=(await checkout.Content.ReadFromJsonAsync<CheckoutResponse>())!;
+        _client.DefaultRequestHeaders.Remove("X-Agora-Order-Access");
+        _client.DefaultRequestHeaders.Add("X-Agora-Order-Access",receipt.GuestOrderAccessToken!);
+        return System.Text.Json.JsonSerializer.Deserialize<OrderResponse>(
+            System.Text.Json.JsonSerializer.Serialize(receipt))!;
     }
 }

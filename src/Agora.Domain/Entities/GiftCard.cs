@@ -58,8 +58,9 @@ public class GiftCard
                 $"Gift card {Code} has {Balance:0.00} remaining; cannot redeem {amount:0.00}.");
         }
 
+        var nextVersion = checked(Version + 1);
         Balance -= amount;
-        Version++;
+        Version = nextVersion;
     }
 
     /// <summary>Returns tender to the card (order refund/cancellation).</summary>
@@ -70,8 +71,9 @@ public class GiftCard
             throw new DomainException("Credit amount must be positive.");
         }
 
+        var nextVersion = checked(Version + 1);
         Balance += amount;
-        Version++;
+        Version = nextVersion;
     }
 
     private static string GenerateCode() =>

@@ -10,7 +10,10 @@ public sealed record FulfillmentLineDto(
 public sealed record CreateFulfillmentRequest(
     [MaxLength(100)] string? Carrier,
     [MaxLength(100)] string? TrackingNumber,
-    List<FulfillmentLineDto>? Items);
+    List<FulfillmentLineDto>? Items,
+    Guid? AssignmentId = null);
+
+public sealed record LegacyFulfillRequest(Guid? AssignmentId);
 
 public sealed record FulfillmentItemResponse(
     Guid OrderItemId,

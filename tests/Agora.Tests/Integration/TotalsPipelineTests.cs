@@ -77,7 +77,8 @@ public class TotalsPipelineTests(AgoraApiFactory factory) : IClassFixture<AgoraA
         Assert.Equal(0m, order.TaxAmount);
         Assert.Equal(5.99m, order.ShippingAmount);
         Assert.Equal(5.99m, order.Total);
-        Assert.StartsWith("txn_", order.PaymentTransactionId);
+        Assert.Null(order.PaymentTransactionId);
+        await AssertStoredPayment(order.Number, "txn_");
         AssertTotalsIdentity(order);
     }
 
@@ -101,7 +102,8 @@ public class TotalsPipelineTests(AgoraApiFactory factory) : IClassFixture<AgoraA
         Assert.Equal("Paid", order.Status);
         Assert.Equal(0m, order.Total);
         Assert.Equal(0m, order.GiftCardAmount);
-        Assert.StartsWith("free_", order.PaymentTransactionId);
+        Assert.Null(order.PaymentTransactionId);
+        await AssertStoredPayment(order.Number, "free_");
         AssertTotalsIdentity(order);
 
         // Stock committed like any paid order.
@@ -154,7 +156,8 @@ public class TotalsPipelineTests(AgoraApiFactory factory) : IClassFixture<AgoraA
 
         Assert.Equal(49.17m, order.Total);
         Assert.Equal(49.17m, order.GiftCardAmount);
-        Assert.StartsWith("gift_", order.PaymentTransactionId);
+        Assert.Null(order.PaymentTransactionId);
+        await AssertStoredPayment(order.Number, "gift_");
         AssertTotalsIdentity(order);
 
         var balance = await _client.GetFromJsonAsync<GiftCardResponse>($"/api/gift-cards/{card}");
@@ -278,4 +281,8 @@ public class TotalsPipelineTests(AgoraApiFactory factory) : IClassFixture<AgoraA
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<OrderResponse>())!;
     }
+
+    private Task AssertStoredPayment(string number, string prefix) => _factory.WithDbAsync(async db =>
+        Assert.StartsWith(prefix, (await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions
+            .SingleAsync(db.Orders, o => o.Number == number)).PaymentTransactionId));
 }

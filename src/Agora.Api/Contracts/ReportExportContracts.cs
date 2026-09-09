@@ -1,0 +1,4 @@
+using System.ComponentModel.DataAnnotations;using System.Text.Json.Serialization;using Agora.Domain.Entities;
+namespace Agora.Api.Contracts;
+public sealed record CreateReportExportRequest([property:JsonRequired]DateTimeOffset? PaidFrom,[property:JsonRequired]DateTimeOffset? PaidTo,int Version=1);
+public sealed record ReportExportResponse(Guid Id,string Status,DateTimeOffset PaidFrom,DateTimeOffset PaidTo,int QueryVersion,long LeaseGeneration,int ClaimCount,bool CancellationRequested,DateTimeOffset CreatedAt,DateTimeOffset? SourceSnapshotAt,DateTimeOffset? CompletedAt,DateTimeOffset? ArtifactExpiresAt,string? FailureCode){public static ReportExportResponse From(ReportExportJob j)=>new(j.Id,j.Status.ToString(),j.PaidFrom,j.PaidTo,j.QueryVersion,j.LeaseGeneration,j.ClaimCount,j.CancellationRequested,j.CreatedAt,j.SourceSnapshotAt,j.CompletedAt,j.ArtifactExpiresAt,j.FailureCode);}

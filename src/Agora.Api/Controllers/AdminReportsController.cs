@@ -80,6 +80,9 @@ public class AdminReportsController(AgoraDbContext db) : ControllerBase
         var rangeTo = to ?? DateTimeOffset.UtcNow;
         var rangeFrom = from ?? rangeTo.AddDays(-30);
 
+        if (rangeFrom > rangeTo)
+            return BadRequest(new ProblemDetails { Title = "'from' must not be after 'to'." });
+
         var rows = await db.OrderItems
             .AsNoTracking()
             .Where(i => i.Order!.PaidAt != null

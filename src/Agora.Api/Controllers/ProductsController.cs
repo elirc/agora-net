@@ -1,7 +1,9 @@
 using Agora.Api.Contracts;
+using Agora.Api.Queries;
 using Agora.Domain.Common;
 using Agora.Domain.Entities;
 using Agora.Infrastructure.Persistence;
+using Agora.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -10,98 +12,19 @@ namespace Agora.Api.Controllers;
 
 [ApiController]
 [Route("api/products")]
-public class ProductsController(AgoraDbContext db) : ControllerBase
+public class ProductsController(AgoraDbContext db, CategoryOptionSchemaService optionSchemas,
+    ProductDraftService productDrafts, CatalogMutationService catalogFeed, TimeProvider clock) : ControllerBase
 {
-    public const int MaxPageSize = 100;
+    public const int MaxPageSize = ProductSearchRequest.MaxPageSize;
 
-    /// <summary>
-    /// Search/filter/paginate the catalog. A product matches a price filter when
-    /// any of its variants falls inside the range; price sorting uses the
-    /// cheapest variant.
-    /// </summary>
+    /// <summary>Search the catalog; all variant filters must match one variant.</summary>
     [HttpGet]
     public async Task<ActionResult<PagedResult<ProductResponse>>> List(
-        [FromQuery] string? search,
-        [FromQuery] Guid? categoryId,
-        [FromQuery] string? categorySlug,
-        [FromQuery] decimal? minPrice,
-        [FromQuery] decimal? maxPrice,
-        [FromQuery] bool? isActive,
-        [FromQuery] string? sort,
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20,
+        [FromQuery] ProductSearchRequest request,
         CancellationToken ct = default)
     {
-        if (page < 1 || pageSize < 1 || pageSize > MaxPageSize)
-        {
-            return BadRequest(new ProblemDetails
-            {
-                Title = $"page must be >= 1 and pageSize between 1 and {MaxPageSize}.",
-            });
-        }
-
-        var query = db.Products
-            .AsNoTracking()
-            .Include(p => p.Variants)
-            .Include(p => p.Images)
-            .Include(p => p.TaxCategory)
-            .AsQueryable();
-
-        if (!string.IsNullOrWhiteSpace(search))
-        {
-            var term = $"%{search.Trim()}%";
-            query = query.Where(p =>
-                EF.Functions.Like(p.Name, term) || EF.Functions.Like(p.Description, term));
-        }
-
-        if (categoryId is { } cid)
-        {
-            query = query.Where(p => p.CategoryId == cid);
-        }
-
-        if (!string.IsNullOrWhiteSpace(categorySlug))
-        {
-            query = query.Where(p => p.Category!.Slug == categorySlug);
-        }
-
-        if (minPrice is { } min)
-        {
-            query = query.Where(p => p.Variants.Any(v => v.Price.Amount >= min));
-        }
-
-        if (maxPrice is { } max)
-        {
-            query = query.Where(p => p.Variants.Any(v => v.Price.Amount <= max));
-        }
-
-        if (isActive is { } active)
-        {
-            query = query.Where(p => p.IsActive == active);
-        }
-
-        query = sort?.ToLowerInvariant() switch
-        {
-            "name" => query.OrderBy(p => p.Name),
-            "name_desc" => query.OrderByDescending(p => p.Name),
-            "price" => query.OrderBy(p => p.Variants.Min(v => v.Price.Amount)),
-            "price_desc" => query.OrderByDescending(p => p.Variants.Min(v => v.Price.Amount)),
-            "oldest" => query.OrderBy(p => p.CreatedAt),
-            null or "" or "newest" => query.OrderByDescending(p => p.CreatedAt),
-            _ => query.OrderByDescending(p => p.CreatedAt),
-        };
-
-        var totalCount = await query.CountAsync(ct);
-        var products = await query
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync(ct);
-
-        var ratings = await LoadRatings(products.Select(p => p.Id).ToList(), ct);
-
-        return Ok(new PagedResult<ProductResponse>(
-            products.Select(p => ToResponse(p, ratings)).ToList(), page, pageSize, totalCount));
+        return Ok(await ProductReadQueries.Page(db, request, ct));
     }
-
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<ProductResponse>> GetById(Guid id, CancellationToken ct)
     {
@@ -122,88 +45,33 @@ public class ProductsController(AgoraDbContext db) : ControllerBase
 
     [Authorize(Roles = "Admin")]
     [HttpPost]
+    [Agora.Api.Filters.LocalSqliteWrite]
     public async Task<ActionResult<ProductResponse>> Create(CreateProductRequest request, CancellationToken ct)
     {
-        if (!await db.Categories.AnyAsync(c => c.Id == request.CategoryId, ct))
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        var validation = await productDrafts.ValidateAndBuildAsync(request.ToDraft(), ct);
+        if (validation.Errors.Count != 0)
         {
-            return UnprocessableEntity(new ProblemDetails { Title = "Category does not exist." });
+            var error = validation.Errors[0];
+            return StatusCode(error.Status, new ProblemDetails { Status = error.Status, Title = error.Message });
         }
-
-        var slug = string.IsNullOrWhiteSpace(request.Slug)
-            ? SlugGenerator.FromName(request.Name)
-            : request.Slug.Trim();
-        if (await db.Products.AnyAsync(p => p.Slug == slug, ct))
-        {
-            return Conflict(new ProblemDetails { Title = $"A product with slug '{slug}' already exists." });
-        }
-
-        var skus = request.Variants.Select(v => v.Sku.Trim()).ToList();
-        if (skus.Distinct(StringComparer.OrdinalIgnoreCase).Count() != skus.Count)
-        {
-            return UnprocessableEntity(new ProblemDetails { Title = "Duplicate SKUs in request." });
-        }
-
-        if (await db.ProductVariants.AnyAsync(v => skus.Contains(v.Sku), ct))
-        {
-            return Conflict(new ProblemDetails { Title = "One or more SKUs already exist." });
-        }
-
-        var (taxCategoryId, taxCategoryError) =
-            await ResolveTaxCategoryAsync(request.TaxCategoryCode, ct);
-        if (taxCategoryError is not null)
-        {
-            return taxCategoryError;
-        }
-
-        var product = new Product
-        {
-            CategoryId = request.CategoryId,
-            Name = request.Name.Trim(),
-            Slug = slug,
-            Description = request.Description ?? string.Empty,
-            IsActive = request.IsActive ?? true,
-            TaxCategoryId = taxCategoryId,
-        };
-
-        foreach (var variantRequest in request.Variants)
-        {
-            var variant = new ProductVariant
-            {
-                ProductId = product.Id,
-                Sku = variantRequest.Sku.Trim(),
-                Name = variantRequest.Name?.Trim() ?? string.Empty,
-                Price = new Money(variantRequest.Price, variantRequest.Currency ?? Money.DefaultCurrency),
-                Options = variantRequest.Options ?? [],
-            };
-            variant.Inventory = new InventoryItem(variant.Id, 0);
-            product.Variants.Add(variant);
-        }
-
-        foreach (var imageRequest in request.Images ?? [])
-        {
-            product.Images.Add(new ProductImage
-            {
-                ProductId = product.Id,
-                Url = imageRequest.Url,
-                AltText = imageRequest.AltText,
-                SortOrder = imageRequest.SortOrder,
-            });
-        }
-
+        var product = validation.Product!;
         db.Products.Add(product);
         await db.SaveChangesAsync(ct);
         await db.Entry(product).Reference(p => p.TaxCategory).LoadAsync(ct);
+        await catalogFeed.StageUpsertAsync(product, clock.GetUtcNow(), ct);
+        await transaction.CommitAsync(ct);
 
         return CreatedAtAction(nameof(GetById), new { id = product.Id }, ProductResponse.From(product));
     }
 
     [Authorize(Roles = "Admin")]
     [HttpPut("{id:guid}")]
+    [Agora.Api.Filters.LocalSqliteWrite]
     public async Task<ActionResult<ProductResponse>> Update(Guid id, UpdateProductRequest request, CancellationToken ct)
     {
-        var product = await db.Products
-            .Include(p => p.Variants)
-            .Include(p => p.Images)
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        var product = await ProductReadQueries.WithResponseData(db.Products)
             .FirstOrDefaultAsync(p => p.Id == id, ct);
         if (product is null)
         {
@@ -227,6 +95,9 @@ public class ProductsController(AgoraDbContext db) : ControllerBase
             return taxCategoryError;
         }
 
+        if (product.CategoryId != request.CategoryId)
+            await optionSchemas.ValidateAuthoringAsync(request.CategoryId,
+                product.Variants.Select(v => new VariantOptionCandidate(v.Id, v.Sku, v.Options)).ToArray(), ct);
         product.CategoryId = request.CategoryId;
         product.Name = request.Name.Trim();
         product.Slug = request.Slug.Trim();
@@ -235,22 +106,38 @@ public class ProductsController(AgoraDbContext db) : ControllerBase
         product.TaxCategoryId = taxCategoryId;
         await db.SaveChangesAsync(ct);
         await db.Entry(product).Reference(p => p.TaxCategory).LoadAsync(ct);
+        await catalogFeed.StageUpsertAsync(product, clock.GetUtcNow(), ct);
+        await transaction.CommitAsync(ct);
 
         return Ok(ProductResponse.From(product));
     }
 
     [Authorize(Roles = "Admin")]
     [HttpDelete("{id:guid}")]
+    [Agora.Api.Filters.LocalSqliteWrite]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var product = await db.Products.FirstOrDefaultAsync(p => p.Id == id, ct);
         if (product is null)
         {
             return NotFound();
         }
 
+        // Cascading variant deletion also changes wishlist membership.
+        var affectedWishlists = await db.Wishlists
+            .Where(w => w.Items.Any(i => i.ProductVariant!.ProductId == id)).ToListAsync(ct);
+        foreach (var wishlist in affectedWishlists) wishlist.MembershipChanged();
+        var affectedCollections = await db.ProductCollections
+            .Where(c => c.Items.Any(i => i.ProductId == id)).ToListAsync(ct);
+        foreach (var collection in affectedCollections) collection.MembershipChanged();
+        var affectedCarts = await db.Carts.Where(c => c.Items.Any(i => i.ProductVariant!.ProductId == id)).ToListAsync(ct);
+        var now = clock.GetUtcNow();
+        foreach (var cart in affectedCarts) cart.MembershipChanged(now);
+        await catalogFeed.StageDeleteAsync(product, now, ct);
         db.Products.Remove(product);
         await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
         return NoContent();
     }
 
@@ -274,39 +161,16 @@ public class ProductsController(AgoraDbContext db) : ControllerBase
     }
 
     /// <summary>Approved-review aggregates (average rating, count) for a set of products.</summary>
-    private async Task<Dictionary<Guid, (decimal Average, int Count)>> LoadRatings(
-        List<Guid> productIds, CancellationToken ct)
-    {
-        var rows = await db.Reviews
-            .AsNoTracking()
-            .Where(r => productIds.Contains(r.ProductId) && r.Status == ReviewStatus.Approved)
-            .GroupBy(r => r.ProductId)
-            .Select(g => new
-            {
-                ProductId = g.Key,
-                Average = g.Average(r => (double)r.Rating),
-                Count = g.Count(),
-            })
-            .ToListAsync(ct);
-
-        return rows.ToDictionary(
-            r => r.ProductId,
-            r => (decimal.Round((decimal)r.Average, 2), r.Count));
-    }
+    private Task<Dictionary<Guid, (decimal Average, int Count)>> LoadRatings(
+        List<Guid> productIds, CancellationToken ct) => ProductReadQueries.Ratings(db, productIds, ct);
 
     private static ProductResponse ToResponse(
         Product product, Dictionary<Guid, (decimal Average, int Count)> ratings) =>
-        ratings.TryGetValue(product.Id, out var stats)
-            ? ProductResponse.From(product, stats.Average, stats.Count)
-            : ProductResponse.From(product);
+        ProductReadQueries.Response(product, ratings);
 
     private Task<Product?> LoadProduct(
         System.Linq.Expressions.Expression<Func<Product, bool>> predicate,
         CancellationToken ct) =>
-        db.Products
-            .AsNoTracking()
-            .Include(p => p.Variants)
-            .Include(p => p.Images)
-            .Include(p => p.TaxCategory)
+        ProductReadQueries.WithResponseData(db.Products.AsNoTracking())
             .FirstOrDefaultAsync(predicate, ct);
 }

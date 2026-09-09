@@ -42,7 +42,7 @@ public class ShippingMethod
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
-    public Money CalculateCharge(Money discountedSubtotal, int totalWeightGrams)
+    public Money CalculateCharge(Money discountedSubtotal, long totalWeightGrams)
     {
         if (totalWeightGrams < 0)
         {

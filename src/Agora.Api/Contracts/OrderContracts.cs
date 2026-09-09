@@ -41,7 +41,8 @@ public sealed record CheckoutRequest(
     [Required, MaxLength(128)] string PaymentToken,
     [MaxLength(64)] string? ShippingMethodCode = null,
     Guid? ShippingAddressId = null,
-    [MaxLength(32)] string? GiftCardCode = null);
+    [MaxLength(32)] string? GiftCardCode = null,
+    bool UseSavedPreferences = false);
 
 public sealed record OrderItemResponse(
     Guid Id,

@@ -66,7 +66,8 @@ public class AddressBookApiTests(AgoraApiFactory factory) : IClassFixture<AgoraA
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var addresses = await client.GetFromJsonAsync<List<CustomerAddressResponse>>("/api/me/addresses");
-        Assert.True(addresses!.Single(a => a.Label == "Office").IsDefault);
+        Assert.NotNull(addresses);
+        Assert.True(addresses.Single(a => a.Label == "Office").IsDefault);
         Assert.False(addresses.Single(a => a.Label == "Home").IsDefault);
     }
 

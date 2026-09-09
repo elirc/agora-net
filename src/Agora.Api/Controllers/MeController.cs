@@ -1,5 +1,6 @@
 using Agora.Api.Auth;
 using Agora.Api.Contracts;
+using Agora.Api.Queries;
 using Agora.Domain.Entities;
 using Agora.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
@@ -18,12 +19,13 @@ public class MeController(AgoraDbContext db) : ControllerBase
 
     /// <summary>The customer's order history, newest first.</summary>
     [HttpGet("orders")]
-    public async Task<ActionResult<PagedResult<OrderResponse>>> Orders(
+    public async Task<ActionResult<PagedResult<CustomerOrderResponse>>> Orders(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
+        [FromQuery] string? status = null,
         CancellationToken ct = default)
     {
-        if (page < 1 || pageSize < 1 || pageSize > MaxPageSize)
+        if (!QueryRules.ValidPage(page, pageSize, MaxPageSize))
         {
             return BadRequest(new ProblemDetails
             {
@@ -31,12 +33,20 @@ public class MeController(AgoraDbContext db) : ControllerBase
             });
         }
 
+        OrderStatus? selectedStatus = null;
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            if (!QueryRules.TryNamedEnum<OrderStatus>(status, out var parsed))
+                return BadRequest(new ProblemDetails { Title = "status must be a named order status." });
+            selectedStatus = parsed;
+        }
         var customerId = User.GetCustomerId();
         var query = db.Orders
             .AsNoTracking()
             .Include(o => o.Items)
             .Where(o => o.CustomerId == customerId)
-            .OrderByDescending(o => o.CreatedAt);
+            .Where(o => !selectedStatus.HasValue || o.Status == selectedStatus.Value)
+            .OrderByDescending(o => o.CreatedAt).ThenBy(o => o.Id);
 
         var totalCount = await query.CountAsync(ct);
         var orders = await query
@@ -44,22 +54,40 @@ public class MeController(AgoraDbContext db) : ControllerBase
             .Take(pageSize)
             .ToListAsync(ct);
 
-        return Ok(new PagedResult<OrderResponse>(
-            orders.Select(OrderResponse.From).ToList(), page, pageSize, totalCount));
+        Response.Headers.CacheControl = "private, no-store";
+        return Ok(new PagedResult<CustomerOrderResponse>(
+            orders.Select(CustomerOrderResponse.From).ToList(), page, pageSize, totalCount));
     }
 
     /// <summary>The customer's address book, default first.</summary>
     [HttpGet("addresses")]
-    public async Task<ActionResult<List<CustomerAddressResponse>>> Addresses(CancellationToken ct)
+    public async Task<ActionResult<List<CustomerAddressResponse>>> Addresses(
+        [FromQuery] string? country = null, CancellationToken ct = default)
     {
+        var trimmed = string.IsNullOrWhiteSpace(country) ? null : country.Trim();
+        if (trimmed is not null && (trimmed.Length != 2
+            || trimmed.Any(c => !(c is >= 'A' and <= 'Z' or >= 'a' and <= 'z'))))
+            return BadRequest(new ProblemDetails { Title = "country must contain two ASCII letters." });
+        var normalized = trimmed?.ToUpperInvariant();
         var customerId = User.GetCustomerId();
         var addresses = await db.CustomerAddresses
             .AsNoTracking()
             .Where(a => a.CustomerId == customerId)
+            .Where(a => normalized == null || a.Address.Country.ToUpper() == normalized)
             .OrderByDescending(a => a.IsDefault)
             .ThenBy(a => a.CreatedAt)
+            .ThenBy(a => a.Id)
             .ToListAsync(ct);
         return Ok(addresses.Select(CustomerAddressResponse.From).ToList());
+    }
+
+    [HttpGet("addresses/{id:guid}")]
+    public async Task<ActionResult<CustomerAddressResponse>> GetAddress(Guid id, CancellationToken ct)
+    {
+        var customerId = User.GetCustomerId();
+        var address = await db.CustomerAddresses.AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Id == id && a.CustomerId == customerId, ct);
+        return address is null ? NotFound() : Ok(CustomerAddressResponse.From(address));
     }
 
     /// <summary>Saves an address; the customer's first address becomes the default.</summary>

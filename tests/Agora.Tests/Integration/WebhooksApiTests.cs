@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Http.Json;
 using Agora.Api.Contracts;
 using Agora.Infrastructure.Services;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Agora.Tests.Integration;
 
@@ -59,7 +61,7 @@ public class WebhooksApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiF
     [Fact]
     public async Task Checkout_FiresCreatedAndPaid_WithValidSignature()
     {
-        using var localFactory = new AgoraApiFactory();
+        using var localFactory = new WebhookApiFactory();
         var client = localFactory.CreateClient();
         var admin = localFactory.CreateClient();
         await admin.AuthenticateAsAdminAsync();
@@ -67,7 +69,7 @@ public class WebhooksApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiF
         var subscription = await Subscribe(admin, "https://example.com/ok",
             ["order.created", "order.paid", "order.fulfilled", "order.refunded"]);
 
-        var order = await PlaceOrder(client, "TEE-BLK-S", 1);
+        var order = await PlaceOrder(localFactory, client, "TEE-BLK-S", 1);
 
         var deliveries = await Deliveries(admin, subscription);
         Assert.Equal(2, deliveries.Count);
@@ -87,7 +89,7 @@ public class WebhooksApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiF
     [Fact]
     public async Task FulfillAndRefund_FireTheirEvents()
     {
-        using var localFactory = new AgoraApiFactory();
+        using var localFactory = new WebhookApiFactory();
         var client = localFactory.CreateClient();
         var admin = localFactory.CreateClient();
         await admin.AuthenticateAsAdminAsync();
@@ -95,9 +97,11 @@ public class WebhooksApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiF
         var subscription = await Subscribe(admin, "https://example.com/lifecycle",
             ["order.fulfilled", "order.refunded"]);
 
-        var order = await PlaceOrder(client, "CAP-KHK", 1);
+        var order = await PlaceOrder(localFactory, client, "CAP-KHK", 1);
         (await admin.PostAsync($"/api/orders/{order.Number}/fulfill", null)).EnsureSuccessStatusCode();
-        (await client.PostAsync($"/api/orders/{order.Number}/refund", null)).EnsureSuccessStatusCode();
+        await Drain(localFactory);
+        (await admin.PostAsync($"/api/orders/{order.Number}/refund", null)).EnsureSuccessStatusCode();
+        await Drain(localFactory);
 
         var deliveries = await Deliveries(admin, subscription);
         Assert.Equal(2, deliveries.Count);
@@ -110,13 +114,13 @@ public class WebhooksApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiF
     [Fact]
     public async Task EventFiltering_OnlySubscribedEventsDeliver()
     {
-        using var localFactory = new AgoraApiFactory();
+        using var localFactory = new WebhookApiFactory();
         var client = localFactory.CreateClient();
         var admin = localFactory.CreateClient();
         await admin.AuthenticateAsAdminAsync();
 
         var paidOnly = await Subscribe(admin, "https://example.com/paid-only", ["order.paid"]);
-        await PlaceOrder(client, "TEE-BLK-M", 1);
+        await PlaceOrder(localFactory, client, "TEE-BLK-M", 1);
 
         var deliveries = await Deliveries(admin, paidOnly);
         var only = Assert.Single(deliveries);
@@ -126,14 +130,14 @@ public class WebhooksApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiF
     [Fact]
     public async Task FailedDelivery_IsLogged_AndRetryable()
     {
-        using var localFactory = new AgoraApiFactory();
+        using var localFactory = new WebhookApiFactory();
         var client = localFactory.CreateClient();
         var admin = localFactory.CreateClient();
         await admin.AuthenticateAsAdminAsync();
 
         // The fake sender rejects URLs containing "fail".
         var subscription = await Subscribe(admin, "https://example.com/always-fails", ["order.paid"]);
-        await PlaceOrder(client, "CHG-65W", 1);
+        await PlaceOrder(localFactory, client, "CHG-65W", 1);
 
         var deliveries = await Deliveries(admin, subscription);
         var failed = Assert.Single(deliveries);
@@ -142,8 +146,8 @@ public class WebhooksApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiF
         Assert.Equal(500, failed.LastResponseStatusCode);
 
         var retry = await admin.PostAsync($"/api/webhooks/deliveries/{failed.Id}/retry", null);
-        Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
-        var retried = await retry.Content.ReadFromJsonAsync<WebhookDeliveryResponse>();
+        Assert.Equal(HttpStatusCode.Accepted, retry.StatusCode); await Drain(localFactory);
+        var retried = Assert.Single(await Deliveries(admin, subscription));
         Assert.Equal("Failed", retried!.Status);
         Assert.Equal(2, retried.AttemptCount);
     }
@@ -151,20 +155,20 @@ public class WebhooksApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiF
     [Fact]
     public async Task Retry_ExhaustedDelivery_Returns409()
     {
-        using var localFactory = new AgoraApiFactory();
+        using var localFactory = new WebhookApiFactory();
         var client = localFactory.CreateClient();
         var admin = localFactory.CreateClient();
         await admin.AuthenticateAsAdminAsync();
 
         var subscription = await Subscribe(admin, "https://example.com/fail-forever", ["order.paid"]);
-        await PlaceOrder(client, "KET-EMB-1L", 1);
+        await PlaceOrder(localFactory, client, "KET-EMB-1L", 1);
         var failed = Assert.Single(await Deliveries(admin, subscription));
 
         // First attempt already happened; retry up to the cap of 5.
         for (var attempt = 2; attempt <= 5; attempt++)
         {
             var retry = await admin.PostAsync($"/api/webhooks/deliveries/{failed.Id}/retry", null);
-            Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
+            Assert.Equal(HttpStatusCode.Accepted, retry.StatusCode); await Drain(localFactory);
         }
 
         var exhausted = await admin.PostAsync($"/api/webhooks/deliveries/{failed.Id}/retry", null);
@@ -174,7 +178,7 @@ public class WebhooksApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiF
     [Fact]
     public async Task InactiveSubscription_ReceivesNothing()
     {
-        using var localFactory = new AgoraApiFactory();
+        using var localFactory = new WebhookApiFactory();
         var client = localFactory.CreateClient();
         var admin = localFactory.CreateClient();
         await admin.AuthenticateAsAdminAsync();
@@ -185,7 +189,7 @@ public class WebhooksApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiF
                 "https://example.com/dormant", Secret, ["order.paid"], false));
         update.EnsureSuccessStatusCode();
 
-        await PlaceOrder(client, "CDL-CDR-S", 1);
+        await PlaceOrder(localFactory, client, "CDL-CDR-S", 1);
 
         var deliveries = await Deliveries(admin, subscription);
         Assert.Empty(deliveries);
@@ -214,7 +218,7 @@ public class WebhooksApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiF
         return page!.Items.ToList();
     }
 
-    private static async Task<OrderResponse> PlaceOrder(HttpClient client, string sku, int quantity)
+    private static async Task<OrderResponse> PlaceOrder(WebApplicationFactory<Program> factory, HttpClient client, string sku, int quantity)
     {
         var cartResponse = await client.PostAsync("/api/carts", null);
         cartResponse.EnsureSuccessStatusCode();
@@ -227,6 +231,13 @@ public class WebhooksApiTests(AgoraApiFactory factory) : IClassFixture<AgoraApiF
         var checkout = await client.PostAsJsonAsync("/api/checkout",
             new CheckoutRequest(token, "hooked@example.com", Address, null, "tok_visa"));
         checkout.EnsureSuccessStatusCode();
-        return (await checkout.Content.ReadFromJsonAsync<OrderResponse>())!;
+        var order = (await checkout.Content.ReadFromJsonAsync<OrderResponse>())!;
+        await Drain(factory); return order;
+    }
+
+    private static async Task Drain(WebApplicationFactory<Program> factory)
+    {
+        using var scope = factory.Services.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<WebhookOutboxRunner>().RunOnceAsync();
     }
 }

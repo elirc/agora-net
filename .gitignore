@@ -483,6 +483,7 @@ $RECYCLE.BIN/
 tmp/
 
 # Local SQLite databases
+data-protection-keys/
 *.db
 *.db-shm
 *.db-wal

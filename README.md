@@ -1,5 +1,20 @@
 # agora-net
 
+**New to this codebase?** [AstraDocs](astradocs/README.md) provides a gradual
+onboarding with repeated explanations, stories, diagrams, annotated code,
+hands-on steps, recall cards, and an answer key. Begin with one small concept.
+
+**Learn backend engineering by improving a real C# codebase.** Start with the
+[junior-to-senior learning path](docs/learning/README.md): hands-on lessons,
+debugging exercises, a worked bug fix, and progressively harder feature tickets.
+The emphasis is on explaining and safely changing code, then developing design
+and operational judgment.
+
+- **New to backend work?** Follow [your first hour](docs/learning/01-first-hour.md).
+- **Ready to build?** Reconstruct the [catalog fix](docs/learning/04-catalog-worked-example.md), then choose a [practice ticket](docs/learning/feature-backlog.md).
+- **Track your growth:** use the [roadmap and rubric](docs/learning/roadmap.md) and [progress journal](docs/learning/progress-journal.md).
+- **Understand the limits:** read the [review findings](docs/learning/review-findings.md), including open order-authorization and payment-recovery work.
+
 An e-commerce platform backend built with C# / .NET 10 and ASP.NET Core Web API — catalog, inventory, guest and account carts, checkout with stock reservation, zone-based tax, shipping methods, gift cards, discounts, reviews, wishlists, returns (RMA), partial fulfillment, webhooks, and admin reporting, all behind JWT auth with an admin role.
 
 ## Solution layout
@@ -15,10 +30,13 @@ An e-commerce platform backend built with C# / .NET 10 and ASP.NET Core Web API 
 
 | Doc | Contents |
 | --- | --- |
+| [astradocs/](astradocs/README.md) | Gradual junior onboarding: the same code paths explained through stories, diagrams, code, exercises, and answers |
+| [Implementation bootcamp](astradocs/bootcamp/README.md) | Live 75-story tracker, build journal, worked feature lessons, exercises with answers, and a personal learning log |
+| [docs/learning/](docs/learning/README.md) | Eleven lessons, roadmap, eight feature exercises, review findings, glossary, mentor prompts, and a progress journal |
 | [docs/getting-started.md](docs/getting-started.md) | Run, seed data, and a verified curl walkthrough: browse → cart → checkout with discount + gift card → fulfill → RMA refund |
 | [docs/architecture.md](docs/architecture.md) | Layering, `Money` + the cents/millionths converters, the checkout pipeline, order-status derivation, tender ordering, webhook delivery |
 | [docs/api-reference.md](docs/api-reference.md) | Every endpoint: method, route, auth, request/response shape, error codes |
-| [docs/adr/](docs/adr/) | Eight decision records — decimal-as-cents, Money, reserve→charge→commit, tender ordering, derived status, optimistic concurrency, HMAC webhooks, guest tokens |
+| [docs/adr/](docs/adr/) | Nine decision records — decimal-as-cents, Money, reserve→charge→commit, tender ordering, derived status, optimistic concurrency, HMAC webhooks, guest tokens |
 | [docs/testing.md](docs/testing.md) | Test taxonomy, harness design, how to run |
 
 ## Getting started
@@ -56,7 +74,7 @@ Catalog, inventory, discount, shipping-method, tax, gift-card, fulfillment, webh
 | `PUT/DELETE /api/reviews/{id}`, `POST .../helpful` | Edit (back to moderation), delete, helpful votes |
 | `GET /api/reviews?status=`, `POST /api/reviews/{id}/approve|reject` | Admin moderation queue |
 
-`GET /api/products` query parameters: `search`, `categoryId`, `categorySlug`, `minPrice`/`maxPrice`, `isActive`, `sort` (`name`, `name_desc`, `price`, `price_desc`, `newest`, `oldest`), `page`, `pageSize` (≤ 100).
+`GET /api/products` query parameters: `search`, `categoryId`, `categorySlug`, `minPrice`/`maxPrice`, `currency`, `inStock`, `isActive`, `sort` (`name`, `name_desc`, `price`, `price_desc`, `newest`, `oldest`), `page`, `pageSize` (≤ 100). Price, currency, and availability must match the same variant. See the [worked example](docs/learning/04-catalog-worked-example.md) for semantics and tests.
 
 ### Inventory & carts
 | Endpoint | Description |
@@ -122,11 +140,15 @@ The `FakePaymentGateway` approves everything except tokens equal to `tok_fail` o
 
 All failures are RFC 7807 `application/problem+json`: model validation → 400 with `errors`, domain rule violations → 400, missing resources → 404, auth → 401/403, payment declines → 402, stock/state/concurrency conflicts → 409, semantic rejections (unknown discount/gift card/shipping method/tax category, over-quantity returns or shipments) → 422, checkout rate limit → 429.
 
-## Production readiness
+## Operational foundations
+
+These facilities support learning and local operation. They do not establish
+production readiness; the [review findings](docs/learning/review-findings.md)
+describe open authorization, payment recovery, and durable delivery concerns.
 
 - **Request logging** via built-in HTTP logging (method, path, status, duration).
 - **Health checks**: `/health` liveness, `/health/ready` readiness with a database probe.
-- **Pagination audit**: every unbounded list is paged (`{ items, page, pageSize, totalCount, totalPages }`) with `pageSize ≤ 100`; per-customer/per-order sublists (addresses, wishlists, fulfillments) are bounded by ownership.
+- **Pagination**: many list endpoints return `{ items, page, pageSize, totalCount, totalPages }` with `pageSize ≤ 100`. Some sublists and reports remain unpaged; ownership alone does not bound response size or query work.
 - **Optimistic concurrency**: `InventoryItem`, `Cart` and `GiftCard` carry a `Version` token bumped on every mutation; competing writes fail with 409 (`DbUpdateConcurrencyException` mapped to ProblemDetails).
 - **Rate limiting**: checkout uses a per-client fixed window (`RateLimiting:Checkout`, default 10/min) returning 429.
 
@@ -142,7 +164,7 @@ All failures are RFC 7807 `application/problem+json`: model validation → 400 w
 ## Development
 
 ```bash
-dotnet test                                   # 427 tests, unit + integration
+dotnet test                                   # unit + integration suites
 dotnet tool run dotnet-ef -- migrations add <Name> \
   --project src/Agora.Infrastructure --startup-project src/Agora.Api
 ```

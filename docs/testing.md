@@ -1,7 +1,11 @@
 # Testing
 
+Learning to choose tests? Start with [tests that make your change safer](learning/05-testing.md).
+The [catalog worked example](learning/04-catalog-worked-example.md) connects a real defect
+to HTTP/SQLite regressions in `CatalogSearchApiTests`.
+
 ```bash
-dotnet test                                    # whole suite: 427 tests
+dotnet test                                    # whole suite
 dotnet test --filter FullyQualifiedName~Unit   # domain only (fast, no HTTP)
 dotnet test --filter FullyQualifiedName~Integration
 dotnet test --filter FullyQualifiedName~TotalsPipelineTests
@@ -79,8 +83,7 @@ public sealed class AgoraApiFactory : WebApplicationFactory<Program>
 Four decisions worth knowing:
 
 1. **In-memory SQLite, not the EF in-memory provider.** Real SQL, real
-   constraints, real value converters, real concurrency tokens. The provider
-   under test in CI is the provider that runs in production.
+   constraints, real value converters, real concurrency tokens. The tests use the same provider as the local API.
 2. **One database per factory, held open by one connection.** An in-memory
    SQLite database lives exactly as long as its connection, so the field on the
    factory *is* the database's lifetime. Classes take

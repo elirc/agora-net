@@ -16,6 +16,9 @@ public class Wishlist
     public bool IsDefault { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public List<WishlistItem> Items { get; set; } = [];
+    public long MembershipVersion { get; private set; }
+
+    public void MembershipChanged() => MembershipVersion = checked(MembershipVersion + 1);
 
     public WishlistItem AddItem(Guid productVariantId, bool outOfStockNow)
     {
@@ -31,6 +34,7 @@ public class Wishlist
             OutOfStockObserved = outOfStockNow,
         };
         Items.Add(item);
+        MembershipChanged();
         return item;
     }
 }
@@ -42,6 +46,17 @@ public class Wishlist
 /// </summary>
 public class WishlistItem
 {
+    public string? Note { get; private set; }
+    public long NoteVersion { get; private set; }
+
+    public void EditNote(string? note)
+    {
+        var normalized = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+        if (normalized?.Length > 500) throw new DomainException("A wishlist note may contain at most 500 characters.");
+        Note = normalized;
+        NoteVersion = checked(NoteVersion + 1);
+    }
+
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid WishlistId { get; set; }
     public Wishlist? Wishlist { get; set; }

@@ -3,6 +3,7 @@ using Agora.Api.Contracts;
 using Agora.Domain.Entities;
 using Agora.Domain.Services;
 using Agora.Infrastructure.Persistence;
+using Agora.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,7 +15,8 @@ namespace Agora.Api.Controllers;
 public class AuthController(
     AgoraDbContext db,
     IPasswordHasher passwordHasher,
-    JwtTokenService tokenService) : ControllerBase
+    JwtTokenService tokenService,
+    AuthenticationSessionService sessions) : ControllerBase
 {
     [HttpPost("register")]
     public async Task<ActionResult<AuthResponse>> Register(RegisterRequest request, CancellationToken ct)
@@ -34,12 +36,14 @@ public class AuthController(
             PasswordHash = passwordHasher.Hash(request.Password),
             FullName = request.FullName?.Trim() ?? string.Empty,
         };
+        var issue = tokenService.PrepareIssue();
+        var session = sessions.Start(customer, request.DeviceLabel, issue.IssuedAt, issue.ExpiresAt);
         db.Customers.Add(customer);
         await db.SaveChangesAsync(ct);
 
-        var (token, expiresAt) = tokenService.IssueToken(customer);
+        var token = tokenService.IssueToken(customer, session.Id, issue);
         return CreatedAtAction(nameof(Me), null,
-            new AuthResponse(token, expiresAt, CustomerResponse.From(customer)));
+            new AuthResponse(token, issue.ExpiresAt, session.Id, CustomerResponse.From(customer)));
     }
 
     [HttpPost("login")]
@@ -58,8 +62,11 @@ public class AuthController(
             });
         }
 
-        var (token, expiresAt) = tokenService.IssueToken(customer);
-        return Ok(new AuthResponse(token, expiresAt, CustomerResponse.From(customer)));
+        var issue = tokenService.PrepareIssue();
+        var session = sessions.Start(customer, request.DeviceLabel, issue.IssuedAt, issue.ExpiresAt);
+        await db.SaveChangesAsync(ct);
+        var token = tokenService.IssueToken(customer, session.Id, issue);
+        return Ok(new AuthResponse(token, issue.ExpiresAt, session.Id, CustomerResponse.From(customer)));
     }
 
     [Authorize]
