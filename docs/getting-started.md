@@ -223,6 +223,48 @@ dotnet tool run dotnet-ef -- migrations add <Name> \
   --project src/Agora.Infrastructure --startup-project src/Agora.Api
 ```
 
+## Practice: break it, then explain it
+
+Each exercise is doable in the code as it stands; the **Check** tells you when
+you're done. Ordered easy → hard. Work on a branch.
+
+1. **Prove the Money clamp matters.** In `src/Agora.Domain/Common/Money.cs`,
+   change `Subtract` to allow negative results. **Check**: `dotnet test
+   --filter MoneyTests` fails, and one checkout-path test shows which
+   real flow (discount bigger than subtotal) relied on the clamp. Revert.
+2. **Find the rate that cents would destroy.** Read
+   `SqliteValueConverters.cs`, then change GB's `reduced` rate from 5% to
+   9.5% via the tax API and place a GB order. **Check**: tax comes back at
+   exactly 9.5%, and you can explain why storing that rate in cent precision
+   would have made it 10%.
+3. **Walk the state matrix by hand.** Before opening
+   `tests/Agora.Tests/Unit/OrderStateMatrixTests.cs`, write out your own
+   6-state × 5-action grid for orders (which actions succeed from Pending,
+   Paid, PartiallyFulfilled, Fulfilled, Cancelled, Refunded?). **Check**:
+   diff your grid against the test's expectations; every mismatch is a rule
+   you didn't know the business had.
+4. **Trip the rate limiter.** Script 11 checkout POSTs inside a minute.
+   **Check**: the 11th returns 429; then explain why
+   `appsettings.Testing.json` sets the limit to 100 000 instead of
+   disabling the middleware (hint: `ApiHardeningTests` still asserts the
+   limiter is wired).
+5. **Race two buyers for the last unit.** `CDL-CDR-L` is seeded with 0
+   stock; restock it to 1 as admin, open two carts, and check both out.
+   **Check**: exactly one 201 and one 409 — then find which guard fired:
+   the logical `Reserve` check or the `InventoryItem.Version` concurrency
+   token (`ConcurrencyEdgeTests` and `StockReservationEdgeTests` show both).
+6. **Exhaust a webhook.** Register a subscription whose URL contains
+   `fail`, place an order, and retry the delivery until it stops letting
+   you. **Check**: attempts cap at 5, the 6th retry returns 409, and the
+   delivery log preserves every attempt — the audit-trail argument in
+   [architecture.md](architecture.md#webhook-delivery-design).
+7. **The senior-review question.** `WebhookService.DispatchAsync` runs
+   inline in the request that placed the order — no queue, no outbox. Write
+   the one-paragraph trade-off: what's gained (simplicity, same-transaction
+   visibility) and what breaks first under load or a slow receiver. Compare
+   your answer with the delivery-log design before deciding whether you'd
+   ship it.
+
 ## Where to go next
 
 - [architecture.md](architecture.md) — layering, Money/converters, the checkout
